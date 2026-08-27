@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+<html xmlns:o="urn:schemas-microsoft-com:office:office"
+      xmlns:w="urn:schemas-microsoft-com:office:word"
+      xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+<meta charset="UTF-8">
+<title>Attendance System – Logic Review Document</title>
+<!--[if gte mso 9]>
+<xml>
+  <w:WordDocument>
+    <w:View>Print</w:View>
+    <w:Zoom>100</w:Zoom>
+  </w:WordDocument>
+</xml>
+<![endif]-->
+<style>
+  body          { font-family: Calibri, Arial, sans-serif; font-size: 11pt; margin: 2cm 2.5cm; color: #1a1a1a; }
+  h1            { font-size: 20pt; font-weight: bold; color: #1F3864; border-bottom: 3px solid #1F3864; padding-bottom: 6pt; margin-top: 0; }
+  h2            { font-size: 15pt; font-weight: bold; color: #2E4D7B; border-bottom: 2px solid #ADB9CA; padding-bottom: 4pt; margin-top: 24pt; page-break-before: always; }
+  h3            { font-size: 12pt; font-weight: bold; color: #2E4D7B; margin-top: 16pt; margin-bottom: 4pt; }
+  h4            { font-size: 11pt; font-weight: bold; color: #555; margin-top: 12pt; margin-bottom: 2pt; }
+  p             { margin: 6pt 0; line-height: 1.5; }
+  ul, ol        { margin: 6pt 0 6pt 18pt; }
+  li            { margin-bottom: 3pt; line-height: 1.5; }
+  code          { font-family: Consolas, "Courier New", monospace; font-size: 10pt; background: #f4f4f4; padding: 1px 4px; border-radius: 3px; }
+  pre           { font-family: Consolas, "Courier New", monospace; font-size: 9.5pt; background: #f8f8f8; border: 1px solid #ddd; padding: 8pt; margin: 8pt 0; white-space: pre-wrap; word-break: break-all; }
+  table         { border-collapse: collapse; width: 100%; margin: 10pt 0; font-size: 10.5pt; }
+  th            { background: #1F3864; color: white; font-weight: bold; padding: 6pt 8pt; text-align: left; border: 1px solid #1F3864; }
+  td            { padding: 5pt 8pt; border: 1px solid #ADB9CA; vertical-align: top; }
+  tr:nth-child(even) td { background: #EEF3FA; }
+  .note         { background: #FFF8DC; border-left: 4px solid #FFD700; padding: 6pt 10pt; margin: 8pt 0; font-size: 10.5pt; }
+  .warning      { background: #FFF0F0; border-left: 4px solid #CC0000; padding: 6pt 10pt; margin: 8pt 0; font-size: 10.5pt; }
+  .ok           { background: #F0FFF0; border-left: 4px solid #228B22; padding: 6pt 10pt; margin: 8pt 0; font-size: 10.5pt; }
+  .toc-title    { font-size: 14pt; font-weight: bold; color: #1F3864; margin-bottom: 8pt; }
+  .toc-item     { margin: 4pt 0; font-size: 11pt; }
+  .toc-section  { font-weight: bold; }
+  .page-break   { page-break-before: always; }
+  .label        { font-weight: bold; min-width: 120px; display: inline-block; }
+  .review-box   { border: 2px solid #1F3864; padding: 10pt 14pt; margin: 12pt 0; background: #F7FAFF; }
+  .review-box h4 { color: #1F3864; margin-top: 0; }
+  .check-row    { display: table; width: 100%; margin: 4pt 0; }
+  .check-label  { display: table-cell; width: 60%; }
+  .check-result { display: table-cell; width: 20%; font-weight: bold; }
+  .check-notes  { display: table-cell; width: 20%; color: #666; font-style: italic; font-size: 10pt; }
+  sup           { color: #CC0000; font-size: 8pt; font-weight: bold; }
+</style>
+</head>
+<body>
+
+<!-- ════════════════════════════════════════════ COVER ════════════════════════════════════════════ -->
+<h1>Attendance Management System<br>Logic Review Document</h1>
+<table style="border:none; width:100%; margin-bottom:16pt;">
+  <tr>
+    <td style="border:none; padding:2pt 0; width:160px;"><b>Prepared on:</b></td>
+    <td style="border:none; padding:2pt 0;">2026-05-02</td>
+  </tr>
+  <tr>
+    <td style="border:none; padding:2pt 0;"><b>Stack:</b></td>
+    <td style="border:none; padding:2pt 0;">Laravel 9 / PHP 8.1+, PostgreSQL, Blade + DataTables + Chart.js</td>
+  </tr>
+  <tr>
+    <td style="border:none; padding:2pt 0;"><b>Key services:</b></td>
+    <td style="border:none; padding:2pt 0;"><code>App\Services\AttendanceProcessor</code>, <code>App\Services\ComputationService</code></td>
+  </tr>
+  <tr>
+    <td style="border:none; padding:2pt 0;"><b>Purpose:</b></td>
+    <td style="border:none; padding:2pt 0;">Detailed description of every module's logic for review and annotation. Please mark each section
+    <b style="color:#228B22;">CORRECT</b>, <b style="color:#CC0000;">INCORRECT</b>, or <b style="color:#FF8C00;">NEEDS CHANGE</b>
+    and return with notes.</td>
+  </tr>
+</table>
+
+<!-- ════════════════════════════════════════════ TOC ════════════════════════════════════════════ -->
+<div class="toc-title">Table of Contents</div>
+<ol class="toc-item">
+  <li class="toc-section">CSV Import &amp; Attendance Processing</li>
+  <li class="toc-section">Overtime Calculation</li>
+  <li class="toc-section">Certificates of Attendance (COA)</li>
+  <li class="toc-section">Leaves</li>
+  <li class="toc-section">Schedule Adjustment</li>
+  <li class="toc-section">Attendance Record</li>
+</ol>
+
+<div class="note">
+  <b>Reviewer instructions:</b> Each section ends with a <b>Review Checklist</b> table.
+  Fill in the <i>Your Assessment</i> and <i>Notes / Corrections</i> columns before returning this document.
+  Use the <i>OK / WRONG / CHANGE</i> shorthand or free text.
+</div>
+
+<!-- ════════════════════════════════════════════ SECTION 1 ════════════════════════════════════════════ -->
+<h2>1. CSV Import &amp; Attendance Processing</h2>
+<p><b>Controller:</b> <code>CsvimportController@uploadCSV</code><br>
+<b>Service:</b> <code>AttendanceProcessor@processFile</code></p>
+
+<h3>1.1 File Upload &amp; Validation</h3>
+<p>The user uploads a biometric export file (CSV or XLSX) through the web interface.
+Before processing, the controller resolves the currently-loaded biometric import session ID
+from the <code>biometric_imports</code> table (the row with <code>status = 'load'</code>).</p>
+<ul>
+  <li>Accepted formats: <code>.csv</code>, <code>.xls</code>, <code>.xlsx</code></li>
+  <li>The file is stored in a temporary upload directory.</li>
+  <li>A single <code>$biometricImportId</code> is used as the batch key for all records created from this file.</li>
+</ul>
+
+<h3>1.2 Reading the File</h3>
+<p>The service reads the file via <code>readAttendanceFile()</code>.</p>
+
+<h4>For XLSX files:</h4>
+<ul>
+  <li>Uses <code>PhpSpreadsheet</code> to load the workbook.</li>
+  <li><b>Skips the first two rows:</b> Row 1 is the "Transactions" title row, Row 2 is the column header row.</li>
+  <li>Column mapping (A through K):</li>
+</ul>
+<table>
+  <tr><th>Column</th><th>Field</th></tr>
+  <tr><td>A</td><td>Personnel ID</td></tr>
+  <tr><td>B</td><td>First Name</td></tr>
+  <tr><td>C</td><td>Last Name</td></tr>
+  <tr><td>D</td><td>Department Name</td></tr>
+  <tr><td>E</td><td>Attendance Area</td></tr>
+  <tr><td>F</td><td>Serial Number</td></tr>
+  <tr><td>G</td><td>Attendance Point Name</td></tr>
+  <tr><td>H</td><td>Attendance time</td></tr>
+  <tr><td>I</td><td>Verification Mode</td></tr>
+  <tr><td>J</td><td>Attendance Photo</td></tr>
+  <tr><td>K</td><td>Data Sources</td></tr>
+</table>
+
+<h4>For CSV files:</h4>
+<ul>
+  <li>Also skips the first two lines (title + header).</li>
+  <li>Uses the same 0–10 positional column mapping as above.</li>
+</ul>
+
+<h4>Attendance time normalization:</h4>
+<ul>
+  <li>Primary format: <code>n/j/Y g:i</code> (e.g. <code>8/11/2025 7:00</code>).</li>
+  <li>Falls back to <code>Carbon::parse()</code> for other formats.</li>
+  <li>Rows with an empty or unparseable Attendance time are silently skipped.</li>
+</ul>
+
+<h3>1.3 Grouping by Personnel ID</h3>
+<p>All rows are grouped by <code>Personnel ID</code>. Within each group, punches are sorted by
+<code>Attendance time</code> in ascending order. This gives each employee an ordered list of
+clock-in/clock-out timestamps for the day.</p>
+
+<h3>1.4 Punch Pairing Logic</h3>
+<p>Punch pairing converts raw timestamps into (earliest, latest) pairs per day.
+The algorithm differs for <b>relievers</b> vs. <b>normal employees</b>.</p>
+
+<h4>Reliever employees</h4>
+<p>Identified via <code>employee_management.relievers = true</code>.</p>
+<ol>
+  <li>Punches are grouped by calendar date.</li>
+  <li>For each date, the system looks for an <b>evening punch</b> (hour ≥ 12) on that date
+      and a <b>morning punch</b> (hour &lt; 12) on the <i>next</i> calendar date.</li>
+  <li>If both are found → a <b>NIGHT</b> record is created with <code>record_date = evening date</code>.</li>
+  <li>If no cross-day pairing is possible but ≥ 2 same-day punches exist → a <b>DAY</b> record
+      (first punch = earliest, last punch = latest).</li>
+  <li>If only 1 punch exists for a date → a <b>SINGLE</b> record (earliest = latest = that punch).</li>
+</ol>
+
+<h4>Non-reliever, night shift employees</h4>
+<p>Identified when the employee's normal schedule OR any of their temp adjustments is in the
+night-shift code list: <code>18-6, 19-7, 19-4, 20-5, 15-23, 15-24, 23-7, 23-8</code>.</p>
+<ol>
+  <li>Iterates all punches in order.</li>
+  <li>When it finds a punch with <code>hour ≥ 14</code> (not yet used), that becomes the <b>start</b>
+      of a night shift block.</li>
+  <li>Any subsequent punch within a 12-hour window of that start punch is included in the same block.</li>
+  <li>The <b>earliest</b> punch in the block = <code>earliest_time</code>;
+      the <b>latest</b> = <code>latest_time</code>.</li>
+  <li><code>record_date</code> = date of the earliest punch.</li>
+</ol>
+
+<h4>Non-reliever, day shift employees</h4>
+<ol>
+  <li>Punches are grouped by calendar date.</li>
+  <li>Earliest punch of the day = <code>earliest_time</code>; latest punch = <code>latest_time</code>.</li>
+  <li>If only one punch: <code>earliest_time = latest_time</code> (this record is later skipped at insert time).</li>
+</ol>
+
+<h3>1.5 Inserting Attendance Records</h3>
+<p>After pairing, the service calls <code>insertAttendanceRecords()</code> to write to the
+<code>attendance_records</code> table. The following duplicate/skip checks are applied per row:</p>
+
+<table>
+  <tr><th>Check</th><th>Action</th></tr>
+  <tr><td>Employee name not found in <code>employee_management</code></td><td>Skip row, increment <code>skipped_no_emp</code></td></tr>
+  <tr><td><code>earliest_time === latest_time</code></td><td>Skip row, increment <code>skipped_same_time</code></td></tr>
+  <tr><td>Exact match exists in <code>attendance_records</code> on all 6 key fields<sup>*</sup></td><td>Skip row, increment <code>skipped_duplicate</code></td></tr>
+  <tr><td>No duplicate found</td><td>Insert new row, increment <code>inserted</code></td></tr>
+</table>
+<p><sup>*</sup> Duplicate key fields: <code>employee_management_id</code>, <code>record_date</code>,
+<code>earliest_time</code>, <code>latest_time</code>, <code>weekday</code>, <code>biometric_imports_id</code>.</p>
+
+<p>Inserted rows are initialized with:</p>
+<pre>late = false
+late_hours = 0
+late_minutes = 0
+leaves = false
+weekday = Carbon::parse(record_date)->format('l')</pre>
+
+<h3>1.6 Post-Insert: Hours &amp; OT Calculation</h3>
+<p>After all rows are inserted, <code>calculateHoursForBiometricImport()</code> runs over the
+newly inserted <code>attendance_records</code> rows to populate the <code>overtimes</code> table.</p>
+
+<h4>Hours worked</h4>
+<ul>
+  <li>If the date is in <code>custom_dates</code> (non-working day) → <code>hours_worked = 0</code>.</li>
+  <li>Otherwise: <code>seconds = latest_seconds - earliest_seconds</code>
+      (adds 86 400 if latest &lt; earliest, i.e., crosses midnight).</li>
+  <li>Subtracts 1-hour break by default (<code>hours = seconds/3600 - 1</code>).</li>
+  <li><b>Exception:</b> schedules <code>15-23</code> and <code>23-7</code> do <b>not</b> subtract the break.</li>
+</ul>
+
+<h4>Security department employees</h4>
+<p>If <code>department = 'security'</code> (case-insensitive), the computed hours are also
+written to the <code>security_attendance</code> table via <code>logSecurityAttendance()</code>.</p>
+
+<h4>OT (simplified, initial pass)</h4>
+<ul>
+  <li><code>ord_ot = max(hours_worked - 8, 0)</code></li>
+  <li>Night differential is calculated separately using <code>secondsInNdWindow()</code>
+      (counts seconds in the 22:00–06:00 window).</li>
+</ul>
+<div class="note">
+  <b>Note:</b> This initial pass is a simplified estimate. The detailed ND/OT breakdown
+  (per-hour loop, late rule, RD detection) is performed later when
+  <code>OvertimeController@updateTime</code> or a schedule adjustment approval re-triggers
+  <code>ComputationService::autocalculateOrd()</code>.
+</div>
+
+<h3>1.7 Non-Working Days Setup</h3>
+<p>The <code>calculateTotalNonWorkingDays()</code> method (called manually or on setup)
+populates the <code>custom_dates</code> table with:</p>
+<ul>
+  <li>All Sundays for the given year → <code>holiday_type = 'Rest Day'</code>, title = <i>Sunday Rest Day</i>.</li>
+  <li>Philippine regular holidays (New Year, Maundy Thursday, Good Friday, etc.) → <code>holiday_type = 'Regular Holiday'</code>.</li>
+  <li>Philippine special non-working holidays (Chinese New Year, Ninoy Aquino Day, etc.) → <code>holiday_type = 'Special Non-Working Holiday'</code>.</li>
+  <li>If a holiday falls on a Sunday, its title gains the suffix "(Falls on Rest Day)".</li>
+</ul>
+
+<h3>1.8 Payroll Report Generation</h3>
+<p><b>Controller:</b> <code>CsvimportController@reportGeneration</code><br>
+<b>Service:</b> <code>AttendanceProcessor@generatePayrollReport</code></p>
+<p>Generates <code>public/python/payroll file.csv</code> by:</p>
+<ol>
+  <li>Loading all <code>attendance_records</code> joined with <code>employee_management</code>
+      for the active biometric import, ordered by employee name then date.</li>
+  <li>For each row, classifying the date via <code>custom_dates.holiday_type</code>:
+    <table>
+      <tr><th>holiday_type value</th><th>Bucket used</th></tr>
+      <tr><td><i>not in custom_dates</i></td><td>ORD (ordinary working day)</td></tr>
+      <tr><td>Rest Day / Sunday</td><td>RD</td></tr>
+      <tr><td>Regular Holiday or Legal Holiday</td><td>LH</td></tr>
+      <tr><td>Special Non-Working Holiday</td><td>SH</td></tr>
+    </table>
+  </li>
+  <li>For ORD dates: calls <code>autocalculateOrd()</code> → adds to <code>ord_ot, ord_nd, ord_nd_ot</code>.</li>
+  <li>For non-working dates: calls <code>autocalculateRdAndOvertime()</code> → routes result
+      into <code>rd_*, lh_*, sh_*</code> buckets accordingly.</li>
+  <li>Columns written as <code>00:00</code> (not yet computed in this pass):
+      <code>RegNDExcess, Sun-ND-Excess, SHNDExcess, LHNDExcess</code>,
+      all <code>SH-RD</code>, <code>LH-RD</code>, and <code>DH-*</code> variants.</li>
+</ol>
+
+<div class="review-box">
+  <h4>Section 1 – Reviewer Checklist</h4>
+  <table>
+    <tr><th>Item</th><th>Your Assessment (OK / WRONG / CHANGE)</th><th>Notes / Corrections</th></tr>
+    <tr><td>Skip first 2 rows in XLSX (title + header)</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+    <tr><td>Night shift pairing: start punch ≥ 14:00, window of 12 hours</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+    <tr><td>Reliever pairing: cross-day evening + next-morning logic</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+    <tr><td>Skip rows where earliest_time = latest_time</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+    <tr><td>Duplicate check: all 6 fields must match before skipping</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+    <tr><td>Break deduction: subtract 1 hour except for 15-23 and 23-7</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+    <tr><td>Payroll CSV: holiday_type routing (ORD / RD / LH / SH)</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+    <tr><td>Philippine holiday list in calculateTotalNonWorkingDays()</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+    <tr><td>Night shift code list: 18-6, 19-7, 19-4, 20-5, 15-23, 15-24, 23-7, 23-8</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+  </table>
+</div>
+
+<!-- ════════════════════════════════════════════ SECTION 2 ════════════════════════════════════════════ -->
+<h2>2. Overtime Calculation</h2>
+<p><b>Controller:</b> <code>OvertimeController</code><br>
+<b>Service:</b> <code>ComputationService</code></p>
+
+<h3>2.1 Overview</h3>
+<p>Overtime records are stored in the <code>overtimes</code> table. Each row links back to one
+<code>attendance_records</code> row via <code>attendance_records_id</code>.
+All OT/ND values are stored as <code>HH:MM</code> strings (e.g. <code>"02:30"</code>), never as decimal numbers.</p>
+
+<h3>2.2 Ordinary Day (ORD) Calculation – <code>autocalculateOrd()</code></h3>
+
+<h4>Step 1 – Early exit conditions</h4>
+<ul>
+  <li>If <code>record_date</code> is in <code>custom_dates</code> (non-working day) → return <code>[0, 0, 0]</code>.</li>
+  <li>If <code>leaves = true</code> → return <code>[0, 0, 0]</code>.</li>
+  <li>If <code>earliest_time</code> is empty or equals <code>latest_time</code> → return <code>[0, 0, 0]</code>.</li>
+</ul>
+
+<h4>Step 2 – Resolve schedule</h4>
+<p>The schedule (e.g. <code>8-17</code>) is resolved in priority order:</p>
+<ol>
+  <li>Check <code>schedule_adjustments</code> joined with <code>employee_management</code>
+      for a matching employee name and exact record date (temp schedule takes priority).</li>
+  <li>If no temp adjustment, use the employee's default schedule from <code>employee_management.schedule</code>.</li>
+  <li>If no schedule found at all → return <code>[0, 0, 0]</code>.</li>
+</ol>
+
+<h4>Step 3 – SG Vesta special case</h4>
+<p>If <code>department</code> is <code>'sg vesta'</code> (case-insensitive), the schedule is
+auto-detected based on which of 07:00 or 19:00 is closer to the employee's earliest punch time:</p>
+<pre>if |earliest_seconds - 7*3600| ≤ |earliest_seconds - 19*3600|
+    schedule = '7-19'
+else
+    schedule = '19-7'</pre>
+
+<h4>Step 4 – Late rule</h4>
+<ul>
+  <li>Parse the schedule start hour from the schedule string (e.g. <code>8</code> from <code>"8-17"</code>).</li>
+  <li>Grace window: start_hour × 3600 + 15 × 60 seconds (i.e. 15 minutes after shift start).</li>
+  <li>If <code>earliest_seconds &gt; grace_window</code>:
+      set <code>earliest_seconds = (start_hour + 1) × 3600</code>
+      (shift the effective in-time forward by 1 hour from shift start).</li>
+</ul>
+<div class="note">
+  <b>Example:</b> Schedule <code>8-17</code>. Grace = 08:15. If employee punched in at 08:30,
+  effective in-time becomes 09:00.
+</div>
+
+<h4>Step 5 – Midnight crossing</h4>
+<p>If <code>latest_seconds ≤ earliest_seconds</code> (punch-out is earlier than punch-in on the same calendar day),
+add 86 400 to <code>latest_seconds</code> to project it to the next day.
+This ensures night shift durations are always positive.</p>
+
+<h4>Step 6 – Hourly loop (ND and OT classification)</h4>
+<p>The work window is divided into 1-hour blocks. Each block is classified:</p>
+<pre>ndStartSec   = 22 × 3600   // 22:00
+ndEndSec     = 6 × 3600    // 06:00
+regularLimit = 8 × 3600    // 8 regular hours
+
+worked = 0
+current = earliest_seconds
+
+while current &lt; latest_seconds:
+    next      = min(current + 3600, latest_seconds)
+    blockSec  = next - current
+    todSec    = current MOD 86400         // time-of-day within the 24-hour cycle
+    isND      = (todSec ≥ 22*3600) OR (todSec &lt; 6*3600)
+
+    if worked &lt; regularLimit:
+        worked += blockSec
+        if isND → ordNd += blockSec       // ND within regular 8 hours
+    else:
+        if isND → ordNdOt += blockSec     // ND overtime (after 8 hours, in ND window)
+        else   → ordOt   += blockSec      // ordinary overtime (after 8 hours, outside ND)
+
+    current = next</pre>
+
+<p>Results are returned as decimal hours (rounded to 2 places):</p>
+<ul>
+  <li><code>ord_ot</code> – regular day overtime hours (non-ND, after 8 hrs)</li>
+  <li><code>ord_nd</code> – night differential hours within regular 8 hrs</li>
+  <li><code>ord_nd_ot</code> – night differential overtime (ND window, after 8 hrs)</li>
+</ul>
+
+<h3>2.3 Rest Day (RD) Calculation – <code>autocalculateRdAndOvertime()</code></h3>
+
+<h4>Trigger condition</h4>
+<p>This function <b>only runs</b> when <code>record_date</code> is found in <code>custom_dates</code>.
+If the date is a normal working day, it returns all zeros immediately.</p>
+
+<h4>RD base hours (schedule-dependent)</h4>
+<p>The RD base hours represent how many hours count as the "regular" rest-day portion
+before OT kicks in:</p>
+<table>
+  <tr><th>Schedule</th><th>RD Base Hours</th><th>Condition</th></tr>
+  <tr><td>7-16, 8-17, 7-19, 6-15, 9-15, 10-18, 10-16</td><td>8</td><td>Any punch-in time</td></tr>
+  <tr><td>15-24</td><td>6</td><td>Punch-in hour ≥ 15</td></tr>
+  <tr><td>23-8</td><td>2</td><td>Punch-in hour ≥ 23</td></tr>
+  <tr><td>23-7</td><td>1</td><td>Punch-in hour ≥ 23</td></tr>
+  <tr><td>All other schedules (e.g. 18-6, 19-7)</td><td>0</td><td>&nbsp;</td></tr>
+</table>
+<div class="warning">
+  <b>Review point:</b> Schedules <code>18-6</code>, <code>19-7</code>, etc. currently return
+  <code>rd = 0</code> because they are not in the day-shift list and do not match the three
+  partial conditions above. Is this intentional?
+</div>
+
+<h4>RD hourly loop</h4>
+<p>Same approach as the ORD loop, but the regular threshold is <b>9 hours</b>
+(8 hours regular + 1-hour break = 9 total before OT):</p>
+<pre>workedLimit = 9 × 3600
+
+if worked &lt; workedLimit:
+    worked += blockSec
+    if isND → rdNd += blockSec
+else:
+    if isND → rdNdOt += blockSec
+    else   → rdOt   += blockSec</pre>
+
+<h3>2.4 Writing to the Database – <code>logOvertimeDb()</code></h3>
+<p>This method inserts or updates a row in the <code>overtimes</code> table. Matching (upsert) key:</p>
+<pre>employee_name + record_date + type + biometric_imports_id + attendance_records_id</pre>
+
+<h4>If an existing record is found:</h4>
+<table>
+  <tr><th>type</th><th>update_target</th><th>Columns updated</th></tr>
+  <tr><td>ord</td><td>any</td><td>ord_ot, ord_nd, ord_nd_ot, schedule_shift, schedule</td></tr>
+  <tr><td>rd</td><td>'rd'</td><td>rd, schedule_shift, schedule</td></tr>
+  <tr><td>rd</td><td>'rd_ot'</td><td>rd_ot, rd_nd, rd_nd_ot, schedule_shift, schedule</td></tr>
+</table>
+
+<h4>All OT values are stored as HH:MM strings:</h4>
+<pre>toHM(hours) = sprintf('%02d:%02d', floor(hours), round((hours - floor(hours)) * 60))</pre>
+
+<h3>2.5 OT Status Workflow</h3>
+<table>
+  <tr><th>Status</th><th>Description</th><th>Transition</th></tr>
+  <tr><td>Pending</td><td>OT record created, awaiting review</td><td>Initial state after import or manual trigger</td></tr>
+  <tr><td>Approved</td><td>Manager/admin approved the OT</td><td><code>OvertimeController@approve()</code></td></tr>
+  <tr><td>Cancelled</td><td>OT was denied or voided</td><td><code>OvertimeController@cancel()</code></td></tr>
+</table>
+
+<h3>2.6 Manual Time Edit – <code>OvertimeController@updateTime()</code></h3>
+<p>When an admin edits the punch times for an OT record:</p>
+<ol>
+  <li>Original times are preserved in <code>original_earliest_time</code> / <code>original_latest_time</code>
+      (written only once; the first edit sets them; subsequent edits keep the original values).</li>
+  <li>New times overwrite <code>earliest_time</code> / <code>latest_time</code>.</li>
+  <li><code>autocalculateOrd()</code> is called with the new times.</li>
+  <li><code>autocalculateRdAndOvertime()</code> is called.</li>
+  <li><code>logOvertimeDb()</code> upserts the result.</li>
+</ol>
+
+<h3>2.7 Night Differential (ND) Window</h3>
+<ul>
+  <li>Window: <b>22:00 to 06:00</b> (next day).</li>
+  <li>ND is accumulated <i>only</i> for hours actually worked in this window.</li>
+  <li>Whether ND is within regular hours or OT depends on whether 8 regular hours have been exhausted.</li>
+</ul>
+
+<h3>2.8 Security Department – <code>logSecurityDb()</code></h3>
+<p>For employees whose department is <code>'Security'</code>, a parallel record is written to
+<code>security_attendance</code> using the same punch times. The record stores
+<code>hours_worked</code>, <code>ot</code>, and <code>nd</code> separately and is matched by
+<code>(employee_management_id, record_date, earliest_time, latest_time, biometric_imports_id)</code>.</p>
+
+<div class="review-box">
+  <h4>Section 2 – Reviewer Checklist</h4>
+  <table>
+    <tr><th>Item</th><th>Your Assessment</th><th>Notes / Corrections</th></tr>
+    <tr><td>Regular hours threshold: 8 hours before ORD OT kicks in</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+    <tr><td>ND window: 22:00 – 06:00</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+    <tr><td>Late rule: &gt;15 min past shift start → push effective in-time to +1 hour</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+    <tr><td>SG Vesta auto-schedule by proximity to 07:00 vs 19:00</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+    <tr><td>RD threshold: 9 hours before RD OT (includes 1-hr break)</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+    <tr><td>RD base hours for 18-6 / 19-7 = 0 (intentional?)</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+    <tr><td>Midnight crossing: add 86400 when latest ≤ earliest</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+    <tr><td>OT stored as HH:MM (not decimal)</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+    <tr><td>Original punch times preserved on first edit only</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+  </table>
+</div>
+
+<!-- ════════════════════════════════════════════ SECTION 3 ════════════════════════════════════════════ -->
+<h2>3. Certificates of Attendance (COA)</h2>
+<p><b>Controller:</b> <code>CertificateOfAttendanceController</code><br>
+<b>Table:</b> <code>certificate_attendance</code></p>
+
+<h3>3.1 Purpose</h3>
+<p>A Certificate of Attendance (COA) allows a manager to manually declare that an employee
+was present on a specific date (e.g., for days not captured by the biometric device).
+Once approved, it creates an official <code>attendance_records</code> entry for that employee and date.</p>
+
+<h3>3.2 Creating a COA – <code>store()</code></h3>
+<p>Accepts an array of items (<code>attendanceArray</code>). Two modes:</p>
+
+<h4>Mode A – All Employees (<code>employee_management_id = 'all'</code>)</h4>
+<ul>
+  <li>Fetches every employee from <code>employee_management</code>.</li>
+  <li>For each employee, checks if a COA already exists for the same date with status
+      <code>Pending</code> or <code>Approved</code>. If found → skips that employee and adds to
+      the <code>skipped</code> list.</li>
+  <li>Creates a new COA record with <code>approval_status = 'Approved'</code> directly
+      (bulk mode bypasses the Pending step).</li>
+  <li>Weekday is computed from the date using Carbon.</li>
+</ul>
+
+<h4>Mode B – Single Employee</h4>
+<ul>
+  <li>Same duplicate check: blocks creation if a Pending or Approved COA exists for the
+      same employee + date + biometric import.</li>
+  <li>Creates with <code>approval_status = 'Pending'</code> (requires explicit approval action).</li>
+</ul>
+
+<h4>Duplicate check scope</h4>
+<p>Checked on: <code>employee_management_id + date + biometric_imports_id + approval_status IN ('Pending','Approved')</code>.</p>
+<div class="note">
+  A <b>Cancelled</b> COA does <b>not</b> block a new submission for the same employee/date.
+  The user can re-submit after a cancellation.
+</div>
+
+<h3>3.3 Approving a COA – <code>approve()</code></h3>
+<p>When a Pending COA is approved:</p>
+<ol>
+  <li>Sets <code>approval_status = 'Approved'</code>.</li>
+  <li>Creates a new <code>attendance_records</code> row with:
+    <ul>
+      <li><code>attendance_area = 'COA'</code> (marks the record as coming from a certificate)</li>
+      <li><code>record_date, earliest_time, latest_time</code> from the COA</li>
+      <li><code>biometric_imports_id</code> from the current active import</li>
+    </ul>
+  </li>
+  <li>Saves the generated <code>attendance_records.id</code> back to <code>certificate_attendance.attendance_records_id</code>.</li>
+  <li><b>Still calls a Python script</b> (<code>attendance_manager.py add ...</code>) to compute overtime for the new record.
+      <span style="color:#CC0000;font-weight:bold;">This Python call has not yet been converted to PHP.</span></li>
+</ol>
+<div class="warning">
+  <b>Known gap:</b> The OT computation for COA approvals still runs through Python.
+  After the Python call is converted, it should use <code>ComputationService::autocalculateOrd()</code>
+  and <code>logOvertimeDb()</code> in the same way as <code>OvertimeController@updateTime()</code>.
+</div>
+
+<h3>3.4 Cancelling a COA – <code>cancel()</code></h3>
+<ul>
+  <li>Sets <code>approval_status = 'Cancelled'</code>.</li>
+  <li>Does <b>not</b> delete the linked <code>attendance_records</code> row or the <code>overtimes</code> row.</li>
+</ul>
+
+<h3>3.5 Finalizing via JSON batch – <code>AttendanceProcessor@finalizeCertificates()</code></h3>
+<p>Used by <code>CsvimportController@finalizeAttendanceCertificates()</code> to process a batch
+JSON file (<code>attendance_certificates.json</code>). Each entry has an <code>action</code> field:</p>
+<table>
+  <tr><th>action</th><th>Logic</th></tr>
+  <tr><td>add</td><td>If no attendance_record exists for employee + date → insert one (with COA times)</td></tr>
+  <tr><td>remove</td><td>Deletes the attendance_record AND the linked overtime record for employee + date</td></tr>
+</table>
+
+<div class="review-box">
+  <h4>Section 3 – Reviewer Checklist</h4>
+  <table>
+    <tr><th>Item</th><th>Your Assessment</th><th>Notes / Corrections</th></tr>
+    <tr><td>Bulk mode (all employees) auto-sets status = Approved</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+    <tr><td>Single mode sets status = Pending (requires approval step)</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+    <tr><td>Duplicate check blocks on Pending OR Approved (not Cancelled)</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+    <tr><td>Approval creates an attendance_records row with attendance_area = 'COA'</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+    <tr><td>COA approve() still runs Python for OT (not yet converted)</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+    <tr><td>Cancellation does NOT remove the linked attendance_record</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+    <tr><td>JSON batch: action='remove' deletes both attendance_records AND overtimes</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+  </table>
+</div>
+
+<!-- ════════════════════════════════════════════ SECTION 4 ════════════════════════════════════════════ -->
+<h2>4. Leaves</h2>
+<p><b>Controller:</b> <code>LeaveController</code><br>
+<b>Table:</b> <code>leaves</code></p>
+
+<h3>4.1 Purpose</h3>
+<p>Leaves track employee absences. When a leave is recorded and applied to the attendance
+computation, the employee's attendance row is flagged (<code>leaves = true</code>), which causes
+the OT calculation to return all zeros (no overtime is earned on a leave day).</p>
+
+<h3>4.2 Status Values</h3>
+<div class="warning">
+  <b>Important:</b> Leave statuses are <b>lowercase</b>:
+  <code>'pending'</code>, <code>'approved'</code>, <code>'cancelled'</code>.
+  All other modules use Title Case (<code>'Pending'</code>, <code>'Approved'</code>, <code>'Cancelled'</code>).
+  Any comparison code must use the correct case for this table.
+</div>
+
+<h3>4.3 Creating Leaves – <code>store()</code></h3>
+<p>Accepts an array of items (<code>leaveArray</code>).</p>
+<ul>
+  <li>Each item must have: <code>employee_management_id, record_date, leave_type</code>.</li>
+  <li>Optional fields: <code>reason, with_pay</code> (defaults to <code>'No'</code>), <code>status</code> (defaults to <code>'pending'</code>).</li>
+</ul>
+
+<h4>Duplicate check</h4>
+<p>Before creating, checks for an existing leave for the same
+<code>employee_management_id + biometric_imports_id + record_date</code>
+with status <code>pending</code> or <code>approved</code>.</p>
+<ul>
+  <li>If found → adds to <code>skipped</code> list, continues to next item.</li>
+  <li>If only a <code>cancelled</code> leave exists → creation is allowed.</li>
+</ul>
+<p>Response includes <code>created_count</code> and the list of <code>skipped</code> records.</p>
+
+<h3>4.4 Approving a Leave – <code>approve()</code></h3>
+<ul>
+  <li>Finds the leave by ID.</li>
+  <li>Sets <code>status = 'approved'</code>.</li>
+  <li>No further side effects (does not update <code>attendance_records.leaves</code> automatically).</li>
+</ul>
+<div class="note">
+  <b>Note:</b> The <code>attendance_records.leaves</code> flag may need to be set separately
+  for the OT exclusion to take effect. Verify whether there is a separate process that propagates
+  the approved leave flag to <code>attendance_records</code>.
+</div>
+
+<h3>4.5 Cancelling a Leave – <code>cancel()</code></h3>
+<ul>
+  <li>Sets <code>status = 'cancelled'</code>.</li>
+  <li>No other changes (does not re-enable OT for the day).</li>
+</ul>
+
+<h3>4.6 Leave Fields Stored</h3>
+<table>
+  <tr><th>Field</th><th>Source</th><th>Notes</th></tr>
+  <tr><td>employee_management_id</td><td>Request</td><td>Must match a valid employee</td></tr>
+  <tr><td>leave_type</td><td>Request</td><td>e.g. "Sick Leave", "Vacation Leave"</td></tr>
+  <tr><td>reason</td><td>Request (nullable)</td><td>&nbsp;</td></tr>
+  <tr><td>record_date</td><td>Request</td><td>The date of the leave</td></tr>
+  <tr><td>status</td><td>Request or default</td><td>Defaults to 'pending'</td></tr>
+  <tr><td>with_pay</td><td>Request or default</td><td>Defaults to 'No'</td></tr>
+  <tr><td>biometric_imports_id</td><td>Active import session</td><td>From BiometricHistoryList</td></tr>
+</table>
+
+<h3>4.7 How Leaves Affect OT</h3>
+<p>In <code>autocalculateOrd()</code> and <code>autocalculateRdAndOvertime()</code>, the check is:</p>
+<pre>if (!empty($row['leaves'])) { return [0, 0, 0]; }</pre>
+<p>This means if the attendance row is flagged as a leave day, zero overtime is computed
+regardless of the punch times.</p>
+
+<div class="review-box">
+  <h4>Section 4 – Reviewer Checklist</h4>
+  <table>
+    <tr><th>Item</th><th>Your Assessment</th><th>Notes / Corrections</th></tr>
+    <tr><td>Statuses are lowercase: 'pending', 'approved', 'cancelled'</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+    <tr><td>Duplicate check: blocks on pending OR approved (allows re-submit after cancelled)</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+    <tr><td>Default with_pay = 'No'</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+    <tr><td>Leave rows on attendance_records flag (leaves=true) → OT returns 0</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+    <tr><td>Approval of leave does NOT automatically flip attendance_records.leaves = true</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+  </table>
+</div>
+
+<!-- ════════════════════════════════════════════ SECTION 5 ════════════════════════════════════════════ -->
+<h2>5. Schedule Adjustment</h2>
+<p><b>Controller:</b> <code>ScheduleAdjustmentController</code><br>
+<b>Service:</b> <code>ComputationService@adjustShiftWithSnapshot</code><br>
+<b>Table:</b> <code>schedule_adjustments</code></p>
+
+<h3>5.1 Purpose</h3>
+<p>A Schedule Adjustment allows a manager to change an employee's assigned shift for a specific date
+(e.g., move from a day shift to a night shift). When approved, the system recalculates overtime
+using the new schedule and preserves a snapshot of the original OT values for audit purposes.</p>
+
+<h3>5.2 Creating a Schedule Adjustment – <code>store()</code></h3>
+<ul>
+  <li>Required fields per item: <code>employee_management_id, record_date, schedule</code>.</li>
+  <li>Optional: <code>others, reason, approval_status</code> (defaults to <code>'Pending'</code>).</li>
+  <li>Duplicate check: blocks creation if a Pending or Approved record already exists for
+      <code>employee_management_id + record_date + biometric_imports_id</code>.</li>
+  <li>Automatically looks up the <code>attendance_records.id</code> for the same
+      employee + date and stores it as <code>attendance_records_id</code>
+      (can be null if no attendance record exists yet).</li>
+</ul>
+
+<h3>5.3 Approving a Schedule Adjustment – <code>approve()</code></h3>
+<p>This is the most complex workflow in the module. The steps are:</p>
+
+<h4>Step 1 – Set approval status</h4>
+<pre>$scheduleAdjustment->approval_status = 'Approved';
+$scheduleAdjustment->save();</pre>
+
+<h4>Step 2 – Load related records</h4>
+<ul>
+  <li>Loads the linked <code>attendance_records</code> row.</li>
+  <li>Loads the linked <code>employee_management</code> row.</li>
+  <li>Loads the existing <code>overtimes</code> row (may be null if none exists yet).</li>
+</ul>
+
+<h4>Step 3 – Snapshot + midnight-safe recalculation</h4>
+<p><code>adjustShiftWithSnapshot()</code> is called. This method:</p>
+<ol>
+  <li><b>Snapshot:</b> Writes the current (original) overtime values to
+      <code>storage/app/schedule_adjustment_snapshots.json</code> before making any changes.
+      The snapshot uses a reference key in the format <code>SNAP-{attendance_records_id}-{timestamp}</code>.</li>
+  <li><b>Parse schedule:</b> Splits the new schedule string (e.g. <code>'19-7'</code>) into start hour (19) and end hour (7).</li>
+  <li><b>Midnight crossing fix:</b> Builds full Carbon datetimes so that night shifts produce
+      a positive duration:
+      <pre>startDt = Carbon::parse("{record_date} {startHour}:00:00")
+endDt   = Carbon::parse("{record_date} {endHour}:00:00")
+if endDt ≤ startDt → endDt.addDay()  // 19→7 on same date would be -12h; now +12h</pre>
+  </li>
+  <li><b>Duration:</b> If actual punch times are available, uses those instead of schedule hours
+      (more precise). Handles punch-out midnight crossing the same way.</li>
+  <li><b>OT calculation:</b>
+      <pre>otHours = max(duration_hours - 8, 0)</pre>
+      Returns 0 if the shift is ≤ 8 hours.</li>
+</ol>
+
+<h4>Step 4 – Full ND/RD breakdown</h4>
+<p>After <code>adjustShiftWithSnapshot()</code> returns the corrected times, the controller
+calls:</p>
+<ul>
+  <li><code>autocalculateOrd()</code> with the midnight-safe times → produces <code>ordOt, ordNd, ordNdOt</code>.</li>
+  <li><code>autocalculateRdAndOvertime()</code> → produces <code>rd, rd_ot, rd_nd, rd_nd_ot</code>.</li>
+</ul>
+
+<h4>Step 5 – Persist new OT</h4>
+<p><code>logOvertimeDb()</code> upserts the result into the <code>overtimes</code> table.
+The new OT is saved with <code>status = 'Pending'</code> so it still requires approval in the
+Overtime module.</p>
+
+<h4>Response payload</h4>
+<p>The API response includes:</p>
+<table>
+  <tr><th>Field</th><th>Content</th></tr>
+  <tr><td>adjusted</td><td>New schedule, times, duration_hours, ot_hours, ot_formatted, crosses_midnight, standard_hours</td></tr>
+  <tr><td>snapshot_ref</td><td>Key string to locate the original in the JSON snapshot file</td></tr>
+  <tr><td>original_ot</td><td>Original ord_ot, ord_nd, ord_nd_ot, rd, rd_ot, rd_nd, rd_nd_ot values</td></tr>
+</table>
+
+<h3>5.4 Cancelling a Schedule Adjustment – <code>cancel()</code></h3>
+<ul>
+  <li>Sets <code>approval_status = 'Cancelled'</code>.</li>
+  <li>Does not revert the overtime record or remove the snapshot.</li>
+</ul>
+
+<h3>5.5 Night Shift Codes</h3>
+<p>The following schedule codes are recognized as night shifts (midnight-crossing is expected):</p>
+<pre>18-6, 19-7, 19-4, 20-5, 15-23, 15-24, 23-7, 23-8</pre>
+
+<h3>5.6 How Schedule Adjustments Affect autocalculateOrd()</h3>
+<p>In both <code>autocalculateOrd()</code> and <code>autocalculateRdAndOvertime()</code>,
+schedule adjustments are checked <b>first</b> (higher priority than the employee's default
+schedule). This means the temp schedule for the specific date overrides the master schedule.</p>
+
+<div class="review-box">
+  <h4>Section 5 – Reviewer Checklist</h4>
+  <table>
+    <tr><th>Item</th><th>Your Assessment</th><th>Notes / Corrections</th></tr>
+    <tr><td>Snapshot saved BEFORE any recalculation (preserves original OT)</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+    <tr><td>Midnight crossing fix: addDay() when endDt ≤ startDt</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+    <tr><td>OT = max(duration - 8 standard hours, 0)</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+    <tr><td>New OT saved with status = 'Pending' (still needs OT approval)</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+    <tr><td>Snapshot stored at storage/app/schedule_adjustment_snapshots.json (append only)</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+    <tr><td>Temp schedule takes priority over default employee schedule in OT calc</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+    <tr><td>Cancellation does NOT revert OT back to original values</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+    <tr><td>Standard hours for OT threshold = 8 (not schedule-specific)</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+  </table>
+</div>
+
+<!-- ════════════════════════════════════════════ SECTION 6 ════════════════════════════════════════════ -->
+<h2>6. Attendance Record</h2>
+<p><b>Table:</b> <code>attendance_records</code><br>
+<b>Service:</b> <code>AttendanceProcessor@insertAttendanceRecords</code></p>
+
+<h3>6.1 What is an Attendance Record?</h3>
+<p>An attendance record represents one employee's presence on one date within one biometric import batch.
+It is the central fact table that all other modules (overtime, leaves, COA, schedule adjustment) link back to.</p>
+
+<h3>6.2 Sources of Attendance Records</h3>
+<table>
+  <tr><th>Source</th><th>attendance_area value</th><th>When created</th></tr>
+  <tr><td>Biometric device import (CSV/XLSX)</td><td>From file column E</td><td>processFile() → insertAttendanceRecords()</td></tr>
+  <tr><td>Certificate of Attendance approval</td><td>'COA'</td><td>CertificateOfAttendanceController@approve()</td></tr>
+  <tr><td>Certificate JSON batch (finalizeCertificates)</td><td>null</td><td>AttendanceProcessor@finalizeCertificates() action='add'</td></tr>
+</table>
+
+<h3>6.3 Key Fields</h3>
+<table>
+  <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+  <tr><td>employee_management_id</td><td>integer FK</td><td>Links to employee_management</td></tr>
+  <tr><td>biometric_imports_id</td><td>integer FK</td><td>The import batch this record belongs to</td></tr>
+  <tr><td>record_date</td><td>date</td><td>The date the employee was present</td></tr>
+  <tr><td>earliest_time</td><td>time string</td><td>First punch-in of the day (HH:MM:SS)</td></tr>
+  <tr><td>latest_time</td><td>time string</td><td>Last punch-out of the day (HH:MM:SS)</td></tr>
+  <tr><td>weekday</td><td>string</td><td>Day name, e.g. 'Monday' – derived from record_date</td></tr>
+  <tr><td>late</td><td>boolean</td><td>Whether the employee was late (set by OT logic)</td></tr>
+  <tr><td>late_hours</td><td>integer</td><td>Hours component of lateness</td></tr>
+  <tr><td>late_minutes</td><td>integer</td><td>Minutes component of lateness</td></tr>
+  <tr><td>leaves</td><td>boolean</td><td>True if this day is flagged as a leave day (no OT computed)</td></tr>
+  <tr><td>attendance_area</td><td>string / null</td><td>Source tag ('COA', device area, etc.)</td></tr>
+  <tr><td>attendance_point_name</td><td>string / null</td><td>Device location name from biometric file</td></tr>
+  <tr><td>verification_mode</td><td>string / null</td><td>How the punch was verified (fingerprint, card, etc.)</td></tr>
+</table>
+
+<h3>6.4 Duplicate Prevention</h3>
+<p>No two records can share the same combination of:</p>
+<pre>employee_management_id + record_date + earliest_time + latest_time + weekday + biometric_imports_id</pre>
+<p>Duplicate rows are silently skipped during batch import (not an error).</p>
+
+<h3>6.5 Records Where earliest_time = latest_time</h3>
+<p>These are skipped at insert time. A single biometric punch (no paired in/out) cannot
+produce a meaningful attendance record. The row is counted in <code>skipped_same_time</code>
+in the import statistics.</p>
+
+<h3>6.6 Biometric Import Sessions</h3>
+<p>The <code>biometric_imports</code> table tracks upload batches. The record with
+<code>status = 'load'</code> is the active/current session. All new attendance records are
+associated with this import ID. The model <code>BiometricHistoryList</code> provides the helper
+<code>getLoadedRecordId()</code> which returns this ID for use by all controllers.</p>
+
+<h3>6.7 How attendance_records Links to Other Tables</h3>
+<table>
+  <tr><th>Related table</th><th>Join column</th><th>Purpose</th></tr>
+  <tr><td>overtimes</td><td>attendance_records_id</td><td>Overtime calculations for this record</td></tr>
+  <tr><td>certificate_attendance</td><td>attendance_records_id</td><td>Which COA created this record</td></tr>
+  <tr><td>schedule_adjustments</td><td>attendance_records_id</td><td>Which schedule change applies to this record</td></tr>
+  <tr><td>security_attendance</td><td>attendance_records_id</td><td>Security-specific hours log</td></tr>
+</table>
+
+<h3>6.8 Deletion Rules</h3>
+<ul>
+  <li>Batch delete (from JSON): <code>finalizeCertificates(action='remove')</code> deletes the
+      <code>attendance_records</code> row and the linked <code>overtimes</code> row.</li>
+  <li>COA cancellation: does <b>not</b> delete the attendance record.</li>
+  <li>Leave cancellation: does <b>not</b> delete the attendance record.</li>
+</ul>
+
+<div class="review-box">
+  <h4>Section 6 – Reviewer Checklist</h4>
+  <table>
+    <tr><th>Item</th><th>Your Assessment</th><th>Notes / Corrections</th></tr>
+    <tr><td>Record with earliest=latest is skipped (not inserted)</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+    <tr><td>Duplicate check: all 6 fields must match before skipping</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+    <tr><td>Active import identified by biometric_imports.status = 'load'</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+    <tr><td>COA-created records have attendance_area = 'COA'</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+    <tr><td>leaves flag = true → OT = 0 (blocks overtime accrual)</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+    <tr><td>weekday field is derived from record_date at insert time</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+    <tr><td>finalizeCertificates remove action deletes attendance_records AND overtimes</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+  </table>
+</div>
+
+<!-- ════════════════════════════════════════════ SUMMARY ════════════════════════════════════════════ -->
+<h2 style="page-break-before: always;">Summary of Outstanding Items for Review</h2>
+<p>The following items were identified during implementation as points that need explicit confirmation
+from the reviewer before they can be considered final:</p>
+
+<table>
+  <tr><th>#</th><th>Module</th><th>Item</th><th>Current Behavior</th><th>Question / Action</th></tr>
+  <tr>
+    <td>1</td>
+    <td>Overtime</td>
+    <td>Break deduction in ORD calculation</td>
+    <td>autocalculateOrd uses raw duration (no break deducted). Payroll report deducts 1-hr break before hours_worked.</td>
+    <td>Should autocalculateOrd also subtract 1 hour before computing OT, or is 8-hr raw threshold correct?</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td>Overtime – RD</td>
+    <td>RD base hours for night schedules (18-6, 19-7)</td>
+    <td>rd = 0 for these schedules because they are not in the day-shift list.</td>
+    <td>Is rd = 0 correct for 19-7 rest days, or should there be a base hours value?</td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td>COA</td>
+    <td>Python exec still in approve()</td>
+    <td>attendance_manager.py is still called after creating the attendance record.</td>
+    <td>Confirm: convert this call to PHP (use autocalculateOrd + logOvertimeDb)?</td>
+  </tr>
+  <tr>
+    <td>4</td>
+    <td>Leaves</td>
+    <td>Leave approval does not flag attendance_records.leaves</td>
+    <td>Approving a leave only updates leaves.status. attendance_records.leaves is a separate flag.</td>
+    <td>Is there a separate process that syncs the approved leave to attendance_records.leaves = true?</td>
+  </tr>
+  <tr>
+    <td>5</td>
+    <td>Schedule Adjustment</td>
+    <td>Cancellation does not revert OT</td>
+    <td>Cancelling a schedule adjustment sets status = Cancelled but does not restore original OT values.</td>
+    <td>Should cancellation revert the overtime record to the snapshot values?</td>
+  </tr>
+  <tr>
+    <td>6</td>
+    <td>Overtime</td>
+    <td>Late rule behavior</td>
+    <td>If employee punches in more than 15 min after shift start, effective in-time is set to start+1 hour.</td>
+    <td>Confirm this is the intended late penalty logic.</td>
+  </tr>
+  <tr>
+    <td>7</td>
+    <td>Payroll CSV</td>
+    <td>Columns written as 00:00</td>
+    <td>RegNDExcess, Sun-ND-Excess, SHNDExcess, LHNDExcess, all SH-RD, LH-RD, DH-* columns are hardcoded 00:00.</td>
+    <td>Are these placeholders for a future calculation, or should they be computed now?</td>
+  </tr>
+</table>
+
+<p style="margin-top: 24pt; font-style: italic; color: #555;">
+  End of document. Please annotate the Review Checklists in each section, fill in the Outstanding Items table,
+  and return this document for implementation of any corrections identified.
+</p>
+
+</body>
+</html>

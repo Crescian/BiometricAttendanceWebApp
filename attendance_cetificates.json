@@ -1,0 +1,20 @@
+[
+    {
+        "id": "TMNG-202410-058",
+        "First Name": "ODEMAR MIRADOR",
+        "Last Name": "MARTINEZ",
+        "record_date": "2025-06-08",
+        "Earliest Time": "05:59:00",
+        "Latest Time": "16:38:00",
+        "Department Name": "OFFICE OF THE RESIDENT MANAGER",
+        "Attendance Area": "Area 3",
+        "Serial Number": "CNSZ214960077",
+        "Schedule": "7-16",
+        "Total Non-Working Days Present": 0,
+        "late": false,
+        "late_hours": 0,
+        "late_minutes": 0,
+        "out_time_required": "16:00:00",
+        "action": "add"
+    }
+]

@@ -1,0 +1,52 @@
+
+
+// check in CARIÑO because maybe because of enye
+// check why Dela Cruz
+// JOSE ERWIN JR. CAMPOS check maybe it is causing error because
+// Maya Jaymar is not being recognized on the biometric 
+// error on danny lucero is being something like this: CARIÃ‘O, DANNY LUCERO
+
+
+
+
+
+
+RAW Spelling in the RAW file
+// why asuque nezryll is green because her name is misspled
+// villacorta NiÑo is misspled
+// morados jomari is wrong spelling is the raw file
+// Marave, Mark Anthony Morels spelling wrong Mark Anthony Mara
+// spelling wrong again in Lobino Chuckie in the raw file
+// spelling wrong in Maneja Marcus
+// Eben Jeffrey wrong spelling on the raw file biometric
+
+
+NOT on the RAW File
+// Basco Michael John Romero is not on the raw file of the biometric
+// medes arcade cabatbat is not on the biometric raw file
+// montall maravin Bermudez is not the raw biometric raw file
+// check mula meljhon is not being check in the biometric
+
+
+ASK why Does has a larger hours worked
+Mark Joseph Catalbas 
+ANTONIO, JULIET ACOSTA
+BALDAS, GRAIL AGLANO
+BANTOLIN, JUPITER BASILA
+BORLAZA, JEFFREY MISTA
+CASTRO, DANIEL MADAMBA
+DELA CRUZ, JOVANNI CASUPANAN
+DY, ALLAN ERIC REYES
+GONZAGA, JULIE SAWKILYO
+LAGUISMA, VALENTINO VALLEJO
+LEGASPINA, JIM ERIC MEDALLA
+LUCERO, JOSEPH MEJOS
+
+
+// idea for OT is that create an if that gives person name and specific date and maybe time until
+what if multiple persons and multiple dates and times
+
+
+
+
+

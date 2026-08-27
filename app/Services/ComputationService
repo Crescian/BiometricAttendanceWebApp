@@ -1,0 +1,605 @@
+<?php
+
+namespace App\Services;
+
+use Carbon\Carbon;
+use Carbon\CarbonInterval;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use PhpOffice\PhpSpreadsheet\IOFactory;
+
+class ComputationService
+{
+    
+    function autocalculateOrd($row, $non_working_days, $data, $engine, $conn, $biometric_imports_id)
+    {
+        try {
+            // 1) Identify date & skip non-working days
+            $record_date = explode(" ", $row["record_date"])[0];
+
+            $cleaned_non_working_days = array_map(function ($d) {
+                return trim(str_replace("'", "", $d));
+            }, $non_working_days);
+
+            if (in_array($record_date, $cleaned_non_working_days)) {
+                Log::info("ord skip record_date: {$record_date}");
+                return [0, 0, 0];
+            }
+
+            if (!empty($row["leaves"])) {
+                Log::info("Leave marked for employee {$row['employee_management_id']} on {$record_date}. Skipping hours calculation.");
+                return [0, 0, 0];
+            }
+
+            $earliest_time = new Carbon($row["earliest_time"]);
+            $latest_time = isset($row["latest_time"]) ? new Carbon($row["latest_time"]) : new Carbon("00:00:00");
+
+            if ($earliest_time->eq($latest_time))
+                return [0, 0, 0];
+
+            // 2) Lookup schedule
+            $temp_sched_pd = DB::table('schedule_adjustments')
+                ->join('employee_management', 'employee_management.id', '=', 'schedule_adjustments.employee_management_id')
+                ->get();
+
+            $employee_name = $row["employee_name"];
+
+            $temp_match = $temp_sched_pd->filter(function ($sched) use ($employee_name, $record_date) {
+                return $sched->employee_name == $employee_name && $sched->record_date == $record_date;
+            });
+
+            if (!$temp_match->isEmpty()) {
+                $schedule = $temp_match->first()->schedule;
+            } else {
+                $match = array_filter($data, fn($d) => $d["employee_name"] == $employee_name);
+                if (empty($match))
+                    return [0, 0, 0];
+                $schedule = reset($match)["schedule"];
+            }
+
+            if ($schedule) {
+                if (strtolower(trim($row["department"] ?? "")) === "sg vesta") {
+                    $seven_am = new CarbonInterval(7, 0, 0);
+                    $seven_pm = new CarbonInterval(19, 0, 0);
+
+                    $diff_to_7 = abs($earliest_time->diffInSeconds(Carbon::today()->add($seven_am)));
+                    $diff_to_19 = abs($earliest_time->diffInSeconds(Carbon::today()->add($seven_pm)));
+
+                    if ($diff_to_7 <= $diff_to_19) {
+                        $schedule = "7-19";
+                    } else {
+                        $schedule = "19-7";
+                    }
+                }
+
+                [$start_str, $end_str] = explode("-", $schedule);
+                $start_hour = intval($start_str);
+                $end_hour = intval($end_str);
+
+                $start_required = new Carbon("{$start_hour}:00:00");
+                $out_time_required = new Carbon("{$end_hour}:00:00");
+
+                $late_cutoff = (clone $start_required)->addMinutes(15);
+                $replace_time = (clone $start_required)->addHour();
+
+                if ($earliest_time->gt($late_cutoff)) {
+                    $earliest_time = $replace_time;
+                }
+            }
+
+            $date_base = new Carbon($record_date);
+            $in_time = clone $date_base;
+            $in_time->addSeconds($earliest_time->diffInSeconds(Carbon::today()));
+
+            $late = false;
+            $late_hours = 0;
+            $late_minutes = 0;
+            $morning_limit = clone $date_base;
+            $morning_limit->addHours(12);
+
+            if ($in_time->between($date_base, $morning_limit) && $earliest_time->gt($late_cutoff)) {
+                $late = true;
+                $delta = $earliest_time->diff($start_required);
+                $late_hours = $delta->h;
+                $late_minutes = $delta->i;
+                if ($delta->h < 1) {
+                    $in_time->addHour();
+                    $delta = $in_time->diff($start_required);
+                    $late_hours = $delta->h;
+                    $late_minutes = $delta->i;
+                }
+            }
+
+            $out_time = clone $date_base;
+            $out_time->addSeconds($latest_time->diffInSeconds(Carbon::today()));
+            if ($out_time->lte($in_time))
+                $out_time->addDay();
+            if ($in_time->eq($out_time))
+                return [0, 0, 0];
+
+            // 7) Initialize OT/ND
+            $ord_nd = new CarbonInterval(0);
+            $ord_ot = new CarbonInterval(0);
+            $ord_nd_ot = new CarbonInterval(0);
+            $worked = new CarbonInterval(0);
+
+            // Placeholder: Logic for OT/ND blocks
+            // Loop hourly between in_time and out_time, calculate ND/OT as in Python code
+
+            // Final OT/ND return (convert to decimal hours)
+            $ord_ot_hours = round($ord_ot->totalSeconds / 3600, 2);
+            $ord_nd_hours = round($ord_nd->totalSeconds / 3600, 2);
+            $ord_nd_ot_hours = round($ord_nd_ot->totalSeconds / 3600, 2);
+
+            return [$ord_ot_hours, $ord_nd_hours, $ord_nd_ot_hours];
+
+        } catch (\Exception $ex) {
+            Log::info("Error auto-calculating ORD: {$ex->getMessage()}");
+            return [0, 0, 0];
+        }
+    }
+    function autocalculateRdAndOvertime(array $row, $data)
+    {
+        try {
+
+            $recordDate = Carbon::parse($row['record_date'])->toDateString();
+
+            // Skip leave
+            if (!empty($row['leaves'])) {
+                Log::info("Leave marked for employee {$row['employee_management_id']} on {$recordDate}");
+                return [
+                    'rd' => 0,
+                    'rd_ot' => 0,
+                    'rd_nd' => 0,
+                    'rd_nd_ot' => 0
+                ];
+            }
+
+            $cleanedNonWorkingDays = array_map(
+                fn($d) => trim(str_replace("'", "", $d)),
+                config('attendance.non_working_days')
+            );
+
+            if (!in_array($recordDate, $cleanedNonWorkingDays)) {
+                return ['rd' => 0, 'rd_ot' => 0, 'rd_nd' => 0, 'rd_nd_ot' => 0];
+            }
+
+            // Load temp schedule
+            $tempSched = DB::table('schedule_adjustments')
+                ->join('employee_management', 'employee_management.id', '=', 'schedule_adjustments.employee_management_id')
+                ->get();
+
+            $employeeName = $row['employee_name'];
+
+            // Resolve schedule
+            $schedule = optional($data->where('employee_name', $employeeName)->first())->schedule;
+
+            $tempMatch = $tempSched
+                ->where('employee_name', $employeeName)
+                ->where('record_date', $recordDate)
+                ->first();
+
+            if ($tempMatch) {
+                $schedule = $tempMatch->schedule;
+            }
+
+            if (!$schedule) {
+                return ['rd' => 0, 'rd_ot' => 0, 'rd_nd' => 0, 'rd_nd_ot' => 0];
+            }
+
+            $earliest = CarbonInterval::fromString($row['earliest_time']);
+            $latest = CarbonInterval::fromString($row['latest_time'] ?? '00:00:00');
+
+            if ($earliest == $latest) {
+                return ['rd' => 0, 'rd_ot' => 0, 'rd_nd' => 0, 'rd_nd_ot' => 0];
+            }
+
+            /** =========================
+             * SECURITY AUTO-SCHEDULE ========================= */
+            if (strtolower(trim($row['department'] ?? '')) === 'sg vesta') {
+                $sevenAM = CarbonInterval::hours(7);
+                $sevenPM = CarbonInterval::hours(19);
+
+                $schedule = abs($earliest->totalSeconds - $sevenAM->totalSeconds)
+                    <= abs($earliest->totalSeconds - $sevenPM->totalSeconds)
+                    ? '7-19'
+                    : '19-7';
+            }
+
+            [$startHour, $endHour] = array_map('intval', explode('-', $schedule));
+
+            $lateCutoff = CarbonInterval::hours($startHour)->add(CarbonInterval::minutes(15));
+            $replaceTime = CarbonInterval::hours(($startHour + 1) % 24);
+
+            if ($earliest->greaterThan($lateCutoff)) {
+                $earliest = $replaceTime;
+            }
+
+            /** =========================
+             * Build timestamps ========================= */
+            $baseDate = Carbon::parse($recordDate);
+            $inTime = $baseDate->copy()->addSeconds($earliest->totalSeconds);
+            $outTime = $baseDate->copy()->addSeconds($latest->totalSeconds);
+
+            if ($outTime->lessThanOrEqualTo($inTime)) {
+                $outTime->addDay();
+            }
+
+            /** =========================
+             * Shift detection========================= */
+            $dayShift = in_array($schedule, ['7-16', '8-17', '7-19', '6-15', '9-15', '10-18', '10-16']);
+            $nightShift = in_array($schedule, ['18-6', '19-7', '19-4', '20-5', '15-23', '15-24', '23-7', '23-8']);
+
+            /** =========================
+             * RD BASE HOURS ========================= */
+            $rdHours = 0;
+
+            if ($dayShift) {
+                $rdHours = 8;
+            }
+
+            if ($schedule === '15-24') {
+                if ($earliest->hours >= 15 && $latest->hours >= 24) {
+                    $rdHours = 6;
+                }
+            }
+
+            if ($schedule === '23-8') {
+                if ($earliest->hours >= 23 && $latest->hours >= 8) {
+                    $rdHours = 2;
+                }
+            }
+
+            if ($schedule === '23-7') {
+                if ($earliest->hours >= 23 && $latest->hours >= 7) {
+                    $rdHours = 1;
+                }
+            }
+
+            /** =========================
+             * RD OT / ND ========================= */
+            $rdOt = 0;
+            $rdNd = 0;
+            $rdNdOt = 0;
+
+            $ndStart = CarbonInterval::hours(22);
+            $ndEnd = CarbonInterval::hours(6);
+
+            $current = $inTime->copy();
+            $worked = CarbonInterval::zero();
+
+            while ($current->lessThan($outTime)) {
+                $next = min($current->copy()->addHour(), $outTime);
+                $blockSeconds = $current->diffInSeconds($next);
+
+                $tod = CarbonInterval::seconds(
+                    $current->hour * 3600 + $current->minute * 60
+                );
+
+                $isNd = $tod->greaterThanOrEqualTo($ndStart) || $tod->lessThan($ndEnd);
+
+                if ($worked->lessThan(CarbonInterval::hours(9))) {
+                    $worked = $worked->add(CarbonInterval::seconds($blockSeconds));
+                } else {
+                    if ($isNd) {
+                        $rdNdOt += $blockSeconds;
+                    } else {
+                        $rdOt += $blockSeconds;
+                    }
+                }
+
+                $current = $next;
+            }
+
+            return [
+                'rd' => round($rdHours, 2),
+                'rd_ot' => round($rdOt / 3600, 2),
+                'rd_nd' => round($rdNd / 3600, 2),
+                'rd_nd_ot' => round($rdNdOt / 3600, 2),
+            ];
+
+        } catch (\Throwable $e) {
+            Log::error("RD auto-calc error: {$e->getMessage()}");
+            return ['rd' => 0, 'rd_ot' => 0, 'rd_nd' => 0, 'rd_nd_ot' => 0];
+        }
+    }
+    public function logOvertimeDb(
+        $row,
+        $ord_ot,
+        $rd_ot,
+        $ord_nd,
+        $ord_nd_ot,
+        $rd,
+        $rd_nd,
+        $rd_nd_ot,
+        $total_non_working_days_present,
+        $late,
+        $late_hours,
+        $late_minutes,
+        $out_time_required,
+        $type,
+        $schedule,
+        $status,
+        $biometric_imports_id,
+        $attendance_records_id,
+        $schedule_shift,
+        $update_target
+    ) {
+        // Helper: convert float hours to "HH:MM"
+        $convertHoursToHM = function ($hours) {
+            if ($hours === null)
+                return '00:00';
+            $h = floor($hours);
+            $m = round(($hours - $h) * 60);
+            return sprintf('%02d:%02d', $h, $m);
+        };
+
+        // Helper: clean days prefix in time string
+        $trimDays = function ($ts) {
+            $s = trim((string) ($ts ?? ''));
+            return preg_replace('/^\d+\s+days?\s+/', '', $s);
+        };
+
+        // Split employee name
+        $nameParts = explode(',', $row['employee_name']);
+        $last = trim($nameParts[0] ?? '');
+        $first = trim($nameParts[1] ?? '');
+        $employeeName = $last . ', ' . $first;
+
+        // Get record_date if missing
+        $recordDate = $row['record_date'] ?? DB::table('attendance_records')
+            ->where('id', $attendance_records_id)
+            ->value('record_date');
+
+        // Convert earliest and latest times
+        $earliest = $row['earliest_time'] ?? '00:00:00';
+        $latest = $row['latest_time'] ?? '00:00:00';
+
+        if ($earliest instanceof \DateInterval || $earliest instanceof \DateTime) {
+            $earliest = CarbonInterval::instance($earliest)->format('%H:%I:%S');
+        } else {
+            $earliest = $trimDays($earliest ?: '00:00:00');
+        }
+
+        if ($latest instanceof \DateInterval || $latest instanceof \DateTime) {
+            $latest = CarbonInterval::instance($latest)->format('%H:%I:%S');
+        } else {
+            $latest = $trimDays($latest ?: '00:00:00');
+        }
+
+        // Fetch employee info
+        $employee = DB::table('employee_management')
+            ->where('employee_name', $row['employee_name'])
+            ->first();
+
+        $id_str = $employee->unique_id ?? 'TMNG-000000-000';
+        $department = $employee->department ?? null;
+        $serial_number = $employee->serial_number ?? null;
+        $attendance_area = $row['Attendance Area'] ?? null;
+
+        $newEntry = [
+            'unique_id' => $id_str,
+            'first_name' => $first,
+            'last_name' => $last,
+            'employee_name' => $employeeName,
+            'record_date' => $recordDate,
+            'earliest_time' => $earliest,
+            'latest_time' => $latest,
+            'type' => $type,
+            'department' => $department,
+            'attendance_area' => $attendance_area,
+            'serial_number' => $serial_number,
+            'schedule' => $schedule,
+            'ord_ot' => $convertHoursToHM($ord_ot),
+            'rd_ot' => $convertHoursToHM($rd_ot),
+            'ord_nd' => $convertHoursToHM($ord_nd),
+            'ord_nd_ot' => $convertHoursToHM($ord_nd_ot),
+            'rd_nd' => $convertHoursToHM($rd_nd),
+            'rd_nd_ot' => $convertHoursToHM($rd_nd_ot),
+            'rd' => $convertHoursToHM($rd),
+            'total_non_working_days_present' => $total_non_working_days_present,
+            'late' => $late,
+            'late_hours' => $late_hours,
+            'late_minutes' => $late_minutes,
+            'out_time_required' => $out_time_required,
+            'status' => $status,
+            'biometric_imports_id' => $biometric_imports_id,
+            'attendance_records_id' => $attendance_records_id,
+            'schedule_shift' => $schedule_shift
+        ];
+
+        DB::beginTransaction();
+        try {
+            // Check for existing entry
+            $existing = DB::table('overtimes')
+                ->where('employee_name', $employeeName)
+                ->where('record_date', $recordDate)
+                ->where('type', $type)
+                ->where('biometric_imports_id', $biometric_imports_id)
+                ->where('attendance_records_id', $attendance_records_id)
+                ->first();
+
+            if ($existing) {
+                $existingId = $existing->id;
+
+                if ($type === 'ord') {
+                    if (
+                        $newEntry['ord_ot'] !== $existing->ord_ot
+                        || $newEntry['ord_nd'] !== $existing->ord_nd
+                        || $newEntry['ord_nd_ot'] !== $existing->ord_nd_ot
+                    ) {
+
+                        DB::table('overtimes')
+                            ->where('id', $existingId)
+                            ->update([
+                                'ord_ot' => $newEntry['ord_ot'],
+                                'ord_nd' => $newEntry['ord_nd'],
+                                'ord_nd_ot' => $newEntry['ord_nd_ot'],
+                                'schedule_shift' => $schedule_shift,
+                                'schedule' => $schedule
+                            ]);
+                    }
+                } elseif ($type === 'rd') {
+                    if ($update_target === 'rd') {
+                        DB::table('overtimes')
+                            ->where('id', $existingId)
+                            ->update([
+                                'rd' => $newEntry['rd'],
+                                'schedule_shift' => $schedule_shift,
+                                'schedule' => $schedule
+                            ]);
+                    } elseif ($update_target === 'rd_ot') {
+                        DB::table('overtimes')
+                            ->where('id', $existingId)
+                            ->update([
+                                'rd_ot' => $newEntry['rd_ot'],
+                                'rd_nd' => $newEntry['rd_nd'],
+                                'rd_nd_ot' => $newEntry['rd_nd_ot'],
+                                'schedule_shift' => $schedule_shift,
+                                'schedule' => $schedule
+                            ]);
+                    }
+                }
+
+                DB::commit();
+                return $existingId;
+            }
+
+            // Insert new entry
+            $newId = DB::table('overtimes')->insertGetId([
+                'unique_id' => $newEntry['unique_id'],
+                'first_name' => $newEntry['first_name'],
+                'last_name' => $newEntry['last_name'],
+                'employee_name' => $newEntry['employee_name'],
+                'earliest_time' => $newEntry['earliest_time'],
+                'latest_time' => $newEntry['latest_time'],
+                'type' => $newEntry['type'],
+                'department' => $newEntry['department'],
+                'attendance_area' => $newEntry['attendance_area'],
+                'serial_number' => $newEntry['serial_number'],
+                'schedule' => $newEntry['schedule'],
+                'ord_ot' => $newEntry['ord_ot'],
+                'rd_ot' => $newEntry['rd_ot'],
+                'ord_nd' => $newEntry['ord_nd'],
+                'ord_nd_ot' => $newEntry['ord_nd_ot'],
+                'rd' => $newEntry['rd'],
+                'rd_nd' => $newEntry['rd_nd'],
+                'rd_nd_ot' => $newEntry['rd_nd_ot'],
+                'total_non_working_days_present' => $newEntry['total_non_working_days_present'],
+                'late' => $newEntry['late'],
+                'late_hours' => $newEntry['late_hours'],
+                'late_minutes' => $newEntry['late_minutes'],
+                'out_time_required' => $newEntry['out_time_required'],
+                'record_date' => $newEntry['record_date'],
+                'status' => $newEntry['status'],
+                'biometric_imports_id' => $newEntry['biometric_imports_id'],
+                'attendance_records_id' => $newEntry['attendance_records_id'],
+                'schedule_shift' => $newEntry['schedule_shift']
+            ]);
+
+            DB::commit();
+            return $newId;
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error("Insert failed: " . $e->getMessage());
+            throw $e;
+        }
+    }
+    function logSecurityDb($row, $type, $hours, $biometric_imports_id, $attendance_records_id)
+    {
+        try {
+            $employeeName = (string) ($row['employee_name'] ?? '');
+            $recordDate = isset($row['record_date']) ? explode(' ', $row['record_date'])[0] : null;
+            $earliestTime = (string) ($row['earliest_time'] ?? '00:00:00');
+            $latestTime = (string) ($row['latest_time'] ?? '00:00:00');
+
+            if (!$recordDate) {
+                Log::info("No record_date provided for {$employeeName}. Skipping log.");
+                return;
+            }
+
+            $weekday = Carbon::parse($recordDate)->format('l'); // day name
+
+            DB::beginTransaction();
+
+            // Step 1: Get employee_management.id
+            $employee = DB::table('employee_management')
+                ->where('employee_name', $employeeName)
+                ->first();
+
+            if (!$employee) {
+                Log::info("No employee found for {$employeeName}. Skipping log.");
+                DB::rollBack();
+                return;
+            }
+
+            $employeeId = $employee->id;
+
+            // Step 2: Check if record already exists
+            $existing = DB::table('security_attendance')
+                ->where('employee_management_id', $employeeId)
+                ->where('record_date', $recordDate)
+                ->where('earliest_time', $earliestTime)
+                ->where('latest_time', $latestTime)
+                ->where('biometric_imports_id', $biometric_imports_id)
+                ->first();
+
+            if ($existing) {
+                // Update existing record
+                $updateData = [];
+
+                if ($type === 'hours_worked') {
+                    $updateData['hours_worked'] = $hours;
+                } elseif ($type === 'OT') {
+                    $updateData['ot'] = $hours;
+                } elseif ($type === 'ND') {
+                    $updateData['nd'] = $hours;
+                } else {
+                    Log::info("Unknown type: {$type}. No update performed.");
+                    DB::rollBack();
+                    return;
+                }
+
+                DB::table('security_attendance')
+                    ->where('id', $existing->id)
+                    ->update($updateData);
+
+                DB::commit();
+                Log::info("Updated {$type} for {$employeeName} ({$weekday}, {$recordDate}).");
+            } else {
+                // Insert new record
+                $insertData = [
+                    'employee_management_id' => $employeeId,
+                    'record_date' => $recordDate,
+                    'weekday' => $weekday,
+                    'earliest_time' => $earliestTime,
+                    'latest_time' => $latestTime,
+                    'biometric_imports_id' => $biometric_imports_id,
+                    'attendance_records_id' => $attendance_records_id
+                ];
+
+                if ($type === 'hours_worked') {
+                    $insertData['hours_worked'] = $hours;
+                } elseif ($type === 'OT') {
+                    $insertData['ot'] = $hours;
+                } elseif ($type === 'ND') {
+                    $insertData['nd'] = $hours;
+                } else {
+                    Log::info("Unknown type: {$type}. No insert performed.");
+                    DB::rollBack();
+                    return;
+                }
+
+                DB::table('security_attendance')->insert($insertData);
+                DB::commit();
+                Log::info("Inserted {$type} record for {$employeeName} ({$weekday}, {$recordDate}).");
+            }
+
+        } catch (\Exception $ex) {
+            DB::rollBack();
+            Log::error("Error logging security DB for {$row['employee_name']}: {$ex->getMessage()}");
+        }
+    }
+
+}

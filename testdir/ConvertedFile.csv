@@ -1,0 +1,6 @@
+﻿Daily Attendance
+Personnel ID,First Name,Last Name,Department Name,Attendance Area,Serial Number,Attendance Point Name,Attendance time,Verification Mode,Attendance Photo,Data Sources,Record Date,Earliest Time,Latest Time,Punch Time
+100,SALLY,MERCED,OHS,Area 3,CNSZ214960077,nan,2025-03-02 22:00:00,Fingerprint only,upload/att/transactionPhoto/CNSZ214960077/2025-03-09/20250309060535-100.jpg,Time Attendance Device, '2025-03-02',08:00:00,22:00:00,08:00:00;22:00:00
+100,SALLY,MERCED,OHS,Area 3,CNSZ214960077,nan,2025-03-07 22:00:00,Fingerprint only,upload/att/transactionPhoto/CNSZ214960077/2025-03-09/20250309060535-100.jpg,Time Attendance Device, '2025-03-07',06:00:00,22:00:00,06:00:00;22:00:00
+100,SALLY,MERCED,OHS,Area 3,CNSZ214960077,nan,2025-03-09 17:01:53,Fingerprint only,upload/att/transactionPhoto/CNSZ214960077/2025-03-09/20250309170153-100.jpg,Time Attendance Device, '2025-03-09',06:05:35,17:01:53,06:05:35;17:01:53
+100,SALLY,MERCED,OHS,Area 3,CNSZ214960077,nan,2025-03-10 18:04:16,Fingerprint only,upload/att/transactionPhoto/CNSZ214960077/2025-03-10/20250310180416-100.jpg,Time Attendance Device, '2025-03-10',07:06:26,18:04:16,07:06:26;18:04:16
