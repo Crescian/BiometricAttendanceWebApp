@@ -124,9 +124,9 @@ class ComputationService
             }
 
             return [
-                round($ordOtSec / 3600, 2),
+                floor($ordOtSec / 3600),   // OT credited only in whole completed hours, per HR policy
                 round($ordNdSec / 3600, 2),
-                round($ordNdOtSec / 3600, 2),
+                floor($ordNdOtSec / 3600), // OT credited only in whole completed hours, per HR policy
             ];
 
         } catch (\Exception $ex) {
@@ -264,9 +264,9 @@ class ComputationService
 
             return [
                 'rd'       => round($rdHours, 2),
-                'rd_ot'    => round($rdOtSec   / 3600, 2),
+                'rd_ot'    => floor($rdOtSec   / 3600), // OT credited only in whole completed hours, per HR policy
                 'rd_nd'    => round($rdNdSec   / 3600, 2),
-                'rd_nd_ot' => round($rdNdOtSec / 3600, 2),
+                'rd_nd_ot' => floor($rdNdOtSec / 3600), // OT credited only in whole completed hours, per HR policy
             ];
 
         } catch (\Throwable $e) {
