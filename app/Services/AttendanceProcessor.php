@@ -7,6 +7,7 @@ use Carbon\CarbonInterval;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use PhpOffice\PhpSpreadsheet\IOFactory;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use App\Services\ComputationService;
 
 class AttendanceProcessor
@@ -810,8 +811,7 @@ class AttendanceProcessor
             mkdir($dir, 0755, true);
         }
 
-        $fp = fopen($outputPath, 'w');
-        fputcsv($fp, [
+        $header = [
             'ID', 'Name', 'Basic', 'Hours Worked',
             'Total Regular Working Days Present', 'Total Non-Working Days Present',
             'Ord-OT', 'Ord-ND', 'Ord-ND-OT', 'RegNDExcess',
@@ -822,10 +822,11 @@ class AttendanceProcessor
             'LH-RD', 'LH-RD-OT', 'LH-RD-ND', 'LH-RD-ND-OT', 'LH-RD-ND-Excess',
             'DH', 'DH-OT', 'DH-ND', 'DH-ND-OT', 'DH-ND-Excess',
             'DH-RD', 'DH-RD-OT', 'DH-RD-ND', 'DH-RD-ND-OT',
-        ]);
+        ];
 
+        $csvRows = [];
         foreach ($summaries as $emp) {
-            fputcsv($fp, [
+            $csvRows[] = [
                 $emp['id'],
                 $emp['name'],
                 $emp['basic'],
@@ -855,12 +856,26 @@ class AttendanceProcessor
                 '00:00', '00:00', '00:00', '00:00', '00:00',
                 '00:00', '00:00', '00:00', '00:00', '00:00',
                 '00:00', '00:00', '00:00', '00:00',
-            ]);
+            ];
         }
 
+        $fp = fopen($outputPath, 'w');
+        fputcsv($fp, $header);
+        foreach ($csvRows as $row) {
+            fputcsv($fp, $row);
+        }
         fclose($fp);
 
-        Log::info("generatePayrollReport: wrote {$outputPath}", ['employees' => count($summaries)]);
+        // Keep the downloadable "payroll file.xlsx" (served by download.payrollfile)
+        // in sync with the CSV — it used to be a static leftover that never got regenerated.
+        $xlsxPath = public_path('python/payroll file.xlsx');
+        $spreadsheet = new Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->fromArray($header, null, 'A1');
+        $sheet->fromArray($csvRows, null, 'A2');
+        (new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet))->save($xlsxPath);
+
+        Log::info("generatePayrollReport: wrote {$outputPath} and {$xlsxPath}", ['employees' => count($summaries)]);
 
         return ['stats' => ['employees' => count($summaries), 'output' => $outputPath]];
     }

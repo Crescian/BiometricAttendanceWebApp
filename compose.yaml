@@ -1,0 +1,44 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile
+    container_name: attendance_app
+    volumes:
+      - .:/var/www/html
+    expose:
+      - "9000"
+    networks:
+      - attendance
+
+  redis:
+    image: redis:latest
+    container_name: attendance_redis
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "cmlinux"]
+    networks:
+      - attendance
+    restart: unless-stopped
+
+  pgsql:
+    image: postgres:16.3
+    container_name: attendance_pgsql
+    environment:
+      POSTGRES_DB: hour_track
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: leonio
+    # Named volume ensures DB persists after container is removed
+    volumes:
+      - './backup/hour_track.plain.sql:/docker-entrypoint-initdb.d/10-hour-track.sql'
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5434:5432"   # unique port per DB
+    networks:
+      - attendance
+    restart: unless-stopped
+
+networks:
+  attendance:
+    driver: bridge
+
+volumes:
+  pgdata:

@@ -647,9 +647,13 @@
             });
         };
 
+        let currentBiometricImportId = null;
+
         function handleUploadSuccess(result, file) {
             $('.detailsLoader, #loaderOverlay').hide();
             console.log("Upload Result:", result);
+
+            currentBiometricImportId = result.biometric_imports_id ?? null;
 
             if (file.name.endsWith('.csv') && result.csvData) {
                 csvDataGlobal = result.csvData;
@@ -722,6 +726,7 @@
                     'X-CSRF-TOKEN': csrfToken
                 },
                 data: {
+                    id: currentBiometricImportId,
                     title: title,
                     imported_by: imported_by,
                     total_rows: total_rows

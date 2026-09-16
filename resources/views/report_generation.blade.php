@@ -276,7 +276,7 @@
                 processData: false,
                 contentType: false,
                 success: result => {
-                    uploadCsvData();
+                    uploadCsvData(result.biometric_imports_id);
                 },
                 error: (xhr, status, error) => {
                     console.error('Error:', error);
@@ -286,12 +286,15 @@
             });
         }
 
-        function uploadCsvData() {
+        function uploadCsvData(biometricImportsId) {
             $.ajax({
                 url: "{{ route('import.csv') }}",
                 type: 'POST',
                 headers: {
                     'X-CSRF-TOKEN': '{{ csrf_token() }}'
+                },
+                data: {
+                    biometric_imports_id: biometricImportsId
                 },
                 success: result => {},
                 error: (xhr, status, error) => {
@@ -374,8 +377,8 @@
                     });
                     var link = document.createElement('a');
                     link.href = URL.createObjectURL(blob);
-                    link.download = 'csv_imports_' + val +
-                        '.csv'; // Name the file dynamically based on the entry_date
+                    var todayStr = new Date().toISOString().slice(0, 10);
+                    link.download = 'csv_imports_' + todayStr + '.csv';
                     link.click();
                 },
                 error: function(xhr, status, error) {

@@ -103,8 +103,19 @@ class CsvimportController extends Controller
 
         $csvPath    = storage_path("app/public/python/{$fileName}");
         $outputDir  = public_path('python/');
-        $latestId   = BiometricHistoryList::latest('id')->value('id') ?? 0;
-        $biometricImportId = $latestId + 1;
+
+        // Create the real biometric_imports row here (instead of guessing a future id)
+        // so attendance_records/overtimes seeded below always match the id that
+        // biometric-history-list.store() later fills in and every other controller
+        // reads via BiometricHistoryList::getLoadedRecordId().
+        BiometricHistoryList::where('status', 'load')->update(['status' => 'unload']);
+        $biometricImport = BiometricHistoryList::create([
+            'title'       => $request->input('title', $fileName),
+            'status'      => 'load',
+            'imported_by' => Auth::user()->email ?? null,
+            'imported_at' => now(),
+        ]);
+        $biometricImportId = $biometricImport->id;
 
         $attempts = 0;
         while (!file_exists($csvPath) && $attempts < 10) {
@@ -127,6 +138,7 @@ class CsvimportController extends Controller
                 'message' => 'File processed successfully',
                 'preview' => $result['preview'] ?? null,
                 'stats'   => $result['stats']   ?? null,
+                'biometric_imports_id' => $biometricImportId,
             ], 200);
 
         } catch (\Throwable $e) {
@@ -152,6 +164,7 @@ class CsvimportController extends Controller
             return response()->json([
                 'message' => 'Report generated successfully',
                 'stats'   => $result['stats'] ?? null,
+                'biometric_imports_id' => $biometricImportId,
             ], 200);
 
         } catch (\Throwable $e) {

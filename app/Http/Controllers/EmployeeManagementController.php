@@ -323,13 +323,18 @@ class EmployeeManagementController extends Controller
         // Fetch the employee by ID
         $employee = EmployeeManagement::findOrFail($id);
 
-        // Check if the new employee name already exists for another employee
-        $existingEmployee = EmployeeManagement::where('employee_name', $request->input('employee_name'))
-            ->where('id', '<>', $id) // Exclude the current employee
-            ->first();
+        // Only enforce the duplicate-name check if the name input actually changed
+        // from what's already on file — resubmitting an unchanged form shouldn't error.
+        $newName = $request->input('employee_name');
 
-        if ($existingEmployee) {
-            return response()->json(['message' => 'Employee name already exists. Update failed.'], 409); // Conflict status code
+        if ($newName !== $employee->employee_name) {
+            $existingEmployee = EmployeeManagement::where('employee_name', $newName)
+                ->where('id', '<>', $id) // Exclude the current employee
+                ->first();
+
+            if ($existingEmployee) {
+                return response()->json(['message' => 'Employee name already exists. Update failed.'], 409); // Conflict status code
+            }
         }
 
         // Update the employee's details
@@ -342,39 +347,40 @@ class EmployeeManagementController extends Controller
         $employee->status = $request->input('status');
         $employee->save(); // Save the updated employee details
 
-        // Update the CSV file
+        // Sync the legacy CSV mirror if it exists. The database is the source of
+        // truth, so a missing/unavailable CSV should not fail the update.
         $filePath = storage_path('app/public/python/BiometricAttendanceInfo.csv');
         $tempFilePath = storage_path('app/public/python/temp.csv'); // Temporary file for updating
 
-        $updated = false;
+        if (file_exists($filePath)) {
+            $updated = false;
 
-        // Open the original CSV and a temporary file
-        if (($csvFile = fopen($filePath, 'r')) !== false && ($tempFile = fopen($tempFilePath, 'w')) !== false) {
-            while (($data = fgetcsv($csvFile)) !== false) {
-                // Check if the unique_id matches
-                if ($data[0] === $employee->unique_id) {
-                    // Update the row with the new values
-                    $data[1] = $employee->employee_name;
-                    $data[2] = $employee->basic_salary;
-                    $updated = true;
+            if (($csvFile = fopen($filePath, 'r')) !== false && ($tempFile = fopen($tempFilePath, 'w')) !== false) {
+                while (($data = fgetcsv($csvFile)) !== false) {
+                    // Check if the unique_id matches
+                    if ($data[0] === $employee->unique_id) {
+                        // Update the row with the new values
+                        $data[1] = $employee->employee_name;
+                        $data[2] = $employee->basic_salary;
+                        $updated = true;
+                    }
+                    // Write the (possibly updated) row to the temp file
+                    fputcsv($tempFile, $data);
                 }
-                // Write the (possibly updated) row to the temp file
-                fputcsv($tempFile, $data);
-            }
 
-            fclose($csvFile);
-            fclose($tempFile);
+                fclose($csvFile);
+                fclose($tempFile);
 
-            // Replace the original file with the updated file
-            if ($updated) {
-                rename($tempFilePath, $filePath);
-            } else {
-                // If no update occurred, remove the temporary file
-                unlink($tempFilePath);
+                // Replace the original file with the updated file
+                if ($updated) {
+                    rename($tempFilePath, $filePath);
+                } else {
+                    // If no update occurred, remove the temporary file
+                    unlink($tempFilePath);
+                }
             }
-        } else {
-            return response()->json(['message' => 'Employee updated, but failed to update CSV.'], 500);
         }
+
         // Return a success response
         return response()->json(['message' => 'Employee updated successfully', 'employee' => $employee]);
     }
@@ -400,32 +406,31 @@ class EmployeeManagementController extends Controller
         // Delete the employee record from the database
         $employee->delete();
 
-        // Path to the CSV file
+        // Sync the legacy CSV mirror if it exists. The database is the source of
+        // truth, so a missing/unavailable CSV should not fail the delete.
         $filePath = storage_path('app/public/python/BiometricAttendanceInfo.csv');
 
-        // Read all rows from the CSV file
-        $rows = [];
-        if (($csvFile = fopen($filePath, 'r')) !== false) {
-            while (($row = fgetcsv($csvFile)) !== false) {
-                // Only keep rows that don't match the unique_id to be deleted
-                if ($row[0] != $unique_id) {
-                    $rows[] = $row;
+        if (file_exists($filePath)) {
+            // Read all rows from the CSV file
+            $rows = [];
+            if (($csvFile = fopen($filePath, 'r')) !== false) {
+                while (($row = fgetcsv($csvFile)) !== false) {
+                    // Only keep rows that don't match the unique_id to be deleted
+                    if ($row[0] != $unique_id) {
+                        $rows[] = $row;
+                    }
+                }
+                fclose($csvFile);
+
+                // Write the filtered data back to the CSV file
+                $csvFile = fopen($filePath, 'w');
+                if ($csvFile !== false) {
+                    foreach ($rows as $row) {
+                        fputcsv($csvFile, $row);
+                    }
+                    fclose($csvFile);
                 }
             }
-            fclose($csvFile);
-        } else {
-            return response()->json(['message' => 'Failed to open CSV file.'], 500);
-        }
-
-        // Write the filtered data back to the CSV file
-        $csvFile = fopen($filePath, 'w');
-        if ($csvFile !== false) {
-            foreach ($rows as $row) {
-                fputcsv($csvFile, $row);
-            }
-            fclose($csvFile);
-        } else {
-            return response()->json(['message' => 'Failed to write to CSV file.'], 500);
         }
 
         return response()->json(['message' => 'Employee deleted successfully.']);
