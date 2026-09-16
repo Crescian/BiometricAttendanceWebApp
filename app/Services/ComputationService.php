@@ -89,7 +89,12 @@ class ComputationService
             // Hourly loop: accumulate ND and OT seconds
             $ndStartSec   = 22 * 3600;
             $ndEndSec     = 6 * 3600;
-            $regularLimit = 8 * 3600;
+
+            // Regular window = 8 worked hours + 1-hr break = 9 hours elapsed before OT starts.
+            // Mirrors the RD-side rule in autocalculateRdAndOvertime(); schedules with no
+            // built-in break keep the flat 8-hour cutoff.
+            $noBreakSchedules = ['15-23', '23-7'];
+            $regularLimit = in_array($schedule, $noBreakSchedules) ? 8 * 3600 : 9 * 3600;
 
             $workedSec  = 0;
             $ordOtSec   = 0;
