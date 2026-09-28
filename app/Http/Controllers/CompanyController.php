@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Company;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 
 class CompanyController extends Controller
@@ -131,7 +132,18 @@ class CompanyController extends Controller
     public function destroy($id)
     {
         $company = Company::findOrFail($id);
-        $company->delete();
+
+        try {
+            $company->delete();
+        } catch (QueryException $e) {
+            if ($e->getCode() === '23503') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Cannot delete this company: it still has departments.'
+                ], 422);
+            }
+            throw $e;
+        }
 
         return response()->json([
             'success' => true,

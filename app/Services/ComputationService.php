@@ -356,6 +356,7 @@ class ComputationService
             'biometric_imports_id'           => $biometric_imports_id,
             'attendance_records_id'          => $attendance_records_id,
             'schedule_shift'                 => $schedule_shift,
+            'employee_management_id'         => $row['employee_management_id'] ?? ($employee->id ?? null),
         ];
 
         DB::beginTransaction();
@@ -604,6 +605,80 @@ class ComputationService
             'snapshot_ref' => $snapshotRef,
             'original'     => $originalData['original_ot'],
         ];
+    }
+
+    /**
+     * Recompute ORD/RD fields for one attendance_records row and sync its overtimes row.
+     * Used after a manual add/edit of Time In / Time Out. The formulas themselves are
+     * untouched — this only feeds the stored times through autocalculateOrd/Rd.
+     */
+    public function recomputeForAttendanceRecord(int $attendanceRecordId, int $biometricImportId): void
+    {
+        $record = DB::table('attendance_records as ar')
+            ->join('employee_management as em', 'em.id', '=', 'ar.employee_management_id')
+            ->where('ar.id', $attendanceRecordId)
+            ->select('ar.*', 'em.employee_name', 'em.department', 'em.schedule', 'em.schedule_shift')
+            ->first();
+
+        if (!$record) return;
+
+        $nonWorkingDays = DB::table('custom_dates')->pluck('record_date')->map(fn($d) => substr($d, 0, 10))->toArray();
+        $employeeData   = DB::table('employee_management')->get()->toArray();
+
+        $rowData = [
+            'employee_name'          => $record->employee_name,
+            'employee_management_id' => $record->employee_management_id,
+            'record_date'            => substr($record->record_date, 0, 10),
+            'earliest_time'          => $record->earliest_time,
+            'latest_time'            => $record->latest_time,
+            'department'             => $record->department ?? '',
+            'leaves'                 => (bool) $record->leaves,
+        ];
+
+        [$ordOt, $ordNd, $ordNdOt] = $this->autocalculateOrd(
+            $rowData, $nonWorkingDays, $employeeData, null, null, $biometricImportId
+        );
+
+        $rdResult = $this->autocalculateRdAndOvertime($rowData, collect($employeeData));
+
+        $existing = DB::table('overtimes')
+            ->where('attendance_records_id', $attendanceRecordId)
+            ->where('biometric_imports_id', $biometricImportId)
+            ->first();
+
+        if ($existing) {
+            // logOvertimeDb's update branch leaves times and RD fields alone, so update
+            // every field here. Approval status is kept as-is.
+            $toHM = function ($hours) {
+                $m = (int) round(($hours ?? 0) * 60);
+                return sprintf('%02d:%02d', intdiv($m, 60), $m % 60);
+            };
+
+            DB::table('overtimes')->where('id', $existing->id)->update([
+                'earliest_time' => $record->earliest_time,
+                'latest_time'   => $record->latest_time,
+                'ord_ot'        => $toHM($ordOt),
+                'ord_nd'        => $toHM($ordNd),
+                'ord_nd_ot'     => $toHM($ordNdOt),
+                'rd'            => $toHM($rdResult['rd']),
+                'rd_ot'         => $toHM($rdResult['rd_ot']),
+                'rd_nd'         => $toHM($rdResult['rd_nd']),
+                'rd_nd_ot'      => $toHM($rdResult['rd_nd_ot']),
+                'updated_at'    => now(),
+            ]);
+            return;
+        }
+
+        $this->logOvertimeDb(
+            $rowData,
+            $ordOt, $rdResult['rd_ot'], $ordNd, $ordNdOt,
+            $rdResult['rd'], $rdResult['rd_nd'], $rdResult['rd_nd_ot'],
+            0, false, 0, 0, null,
+            'ord', $record->schedule ?? null,
+            'Pending', $biometricImportId,
+            $attendanceRecordId,
+            $record->schedule_shift ?? null, 'ord'
+        );
     }
 
     /**

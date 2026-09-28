@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Log;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use App\Services\ComputationService;
+use App\Services\SecurityReportService;
 
 class AttendanceProcessor
 {
@@ -45,6 +46,9 @@ class AttendanceProcessor
 
         // 4. insert attendance_records and capture stats
         $stats = $this->insertAttendanceRecords($processed, $biometricImportsId);
+
+        // 4b. default the batch's payroll period to its first/last punch date
+        $this->setDefaultPeriod($biometricImportsId);
 
         // 5. Optionally calculate hours/OT for new records (we implement a basic version here)
         $this->calculateHoursForBiometricImport($biometricImportsId);
@@ -394,22 +398,16 @@ class AttendanceProcessor
 
                 $weekday = Carbon::parse($recordDate)->format('l');
 
+                // One record per employee per day across ALL imports: uploads may overlap,
+                // and the first stored record (with any edits/leaves on it) is kept.
                 $exists = DB::selectOne("
                     SELECT 1 FROM attendance_records
                     WHERE employee_management_id = :eid
-                      AND record_date = :rdate
-                      AND earliest_time = :et
-                      AND latest_time = :lt
-                      AND weekday = :wd
-                      AND biometric_imports_id = :bid
+                      AND DATE(record_date) = :rdate
                     LIMIT 1
                 ", [
                     'eid' => $employee_management_id,
                     'rdate' => $recordDate,
-                    'et' => $earliest,
-                    'lt' => $latest,
-                    'wd' => $weekday,
-                    'bid'=> $biometricImportsId
                 ]);
                 if ($exists) { $stats['skipped_duplicate']++; continue; }
 
@@ -447,6 +445,30 @@ class AttendanceProcessor
         }
 
         return $stats;
+    }
+
+    /**
+     * Fill period_start / period_end on the batch from its attendance_records
+     * when the admin has not set them yet.
+     */
+    protected function setDefaultPeriod(int $biometricImportsId): void
+    {
+        $range = DB::table('attendance_records')
+            ->where('biometric_imports_id', $biometricImportsId)
+            ->selectRaw('MIN(record_date)::date AS min_date, MAX(record_date)::date AS max_date')
+            ->first();
+
+        if (!$range || !$range->min_date) return;
+
+        DB::table('biometric_imports')
+            ->where('id', $biometricImportsId)
+            ->whereNull('period_start')
+            ->update(['period_start' => $range->min_date]);
+
+        DB::table('biometric_imports')
+            ->where('id', $biometricImportsId)
+            ->whereNull('period_end')
+            ->update(['period_end' => $range->max_date]);
     }
 
     /**
@@ -646,6 +668,7 @@ class AttendanceProcessor
             'status' => 'Pending',
             'biometric_imports_id' => $biometric_imports_id,
             'attendance_records_id' => $attendance_records_id,
+            'employee_management_id' => $attendanceRow->employee_management_id ?? ($emp->id ?? null),
             'created_at' => now(),
             'updated_at' => now()
         ]);
@@ -696,7 +719,6 @@ class AttendanceProcessor
                 'earliest_time' => $earliest,
                 'latest_time' => $latest,
                 'biometric_imports_id' => $biometric_imports_id ?? $attendanceRow->biometric_imports_id,
-                'attendance_records_id' => $attendance_records_id ?? $attendanceRow->id,
                 'created_at' => now(),
                 'updated_at' => now()
             ];
@@ -707,23 +729,30 @@ class AttendanceProcessor
         }
     }
 
+    /** Hour buckets computed per attendance record (payroll columns and DTR rows). */
+    protected const BUCKETS = [
+        'hours_worked',
+        'ord_ot', 'ord_nd', 'ord_nd_ot',
+        'rd', 'rd_ot', 'rd_nd', 'rd_nd_ot',
+        'lh', 'lh_ot', 'lh_nd', 'lh_nd_ot',
+        'sh', 'sh_ot', 'sh_nd', 'sh_nd_ot',
+    ];
+
     /**
-     * Generate the payroll CSV (public/python/payroll file.csv) from all attendance_records
-     * for a given biometric import. Computes ORD, RD, ND, LH, SH hours per employee.
+     * Compute every attendance_record dated within the payroll period ($start..$end), from
+     * any biometric import, into per-employee, per-date hour buckets. Shared by the payroll
+     * file and the DTR so both always show the same numbers. Imports never store the same
+     * employee/date twice (see insertAttendanceRecords), so no row is counted twice.
      */
-    public function generatePayrollReport(int $biometricImportsId): array
+    protected function buildDailyBreakdown(string $start, string $end): array
     {
         $rows = DB::select("
             SELECT ar.*, em.employee_name, em.department, em.unique_id, em.basic_salary, em.schedule
             FROM attendance_records ar
             INNER JOIN employee_management em ON em.id = ar.employee_management_id
-            WHERE ar.biometric_imports_id = :bid
+            WHERE DATE(ar.record_date) BETWEEN :start AND :end
             ORDER BY em.employee_name, ar.record_date
-        ", ['bid' => $biometricImportsId]);
-
-        if (empty($rows)) {
-            return ['error' => 'No attendance records found for this biometric import'];
-        }
+        ", ['start' => $start, 'end' => $end]);
 
         $nonWorkingDays = DB::table('custom_dates')
             ->pluck('record_date')
@@ -734,33 +763,35 @@ class AttendanceProcessor
             ->get()
             ->keyBy(fn($r) => substr($r->record_date, 0, 10));
 
-        $employeeData    = DB::table('employee_management')->get()->toArray();
-        $computation     = new ComputationService();
-        $summaries       = [];
+        $employeeData = DB::table('employee_management')->get()->toArray();
+        $computation  = new ComputationService();
+        $employees    = [];
 
         foreach ($rows as $r) {
             $empName    = $r->employee_name;
             $recordDate = substr($r->record_date, 0, 10);
 
-            if (!isset($summaries[$empName])) {
-                $summaries[$empName] = [
+            if (!isset($employees[$empName])) {
+                $employees[$empName] = [
                     'id' => $r->unique_id, 'name' => $empName, 'basic' => $r->basic_salary ?? 0,
-                    'hours_worked' => 0, 'total_regular_days' => 0, 'total_non_working_days' => 0,
-                    'ord_ot' => 0, 'ord_nd' => 0, 'ord_nd_ot' => 0,
-                    'rd' => 0, 'rd_ot' => 0, 'rd_nd' => 0, 'rd_nd_ot' => 0,
-                    'lh' => 0, 'lh_ot' => 0, 'lh_nd' => 0, 'lh_nd_ot' => 0,
-                    'sh' => 0, 'sh_ot' => 0, 'sh_nd' => 0, 'sh_nd_ot' => 0,
+                    'days' => [],
                 ];
             }
+
+            if (!isset($employees[$empName]['days'][$recordDate])) {
+                $employees[$empName]['days'][$recordDate] = array_fill_keys(self::BUCKETS, 0)
+                    + ['regular_days' => 0, 'non_working_days' => 0];
+            }
+            $day = &$employees[$empName]['days'][$recordDate];
 
             $holiday      = $holidayMap[$recordDate] ?? null;
             $isNonWorking = in_array($recordDate, $nonWorkingDays);
             $holidayType  = $holiday->holiday_type ?? null;
 
             if ($isNonWorking) {
-                $summaries[$empName]['total_non_working_days']++;
+                $day['non_working_days']++;
             } else {
-                $summaries[$empName]['total_regular_days']++;
+                $day['regular_days']++;
             }
 
             // Hours worked (subtract 1-hour break for non-security schedules)
@@ -770,36 +801,88 @@ class AttendanceProcessor
                 $secs = $lat >= $ear ? $lat - $ear : ($lat + 86400) - $ear;
                 $noBreakSchedules = ['15-23', '23-7'];
                 $break = in_array($r->schedule ?? '', $noBreakSchedules) ? 0 : 3600;
-                $summaries[$empName]['hours_worked'] += max(($secs - $break) / 3600, 0);
+                $day['hours_worked'] += max(($secs - $break) / 3600, 0);
             }
 
             $rowArr = (array)$r;
 
             if (!$isNonWorking) {
                 [$ordOt, $ordNd, $ordNdOt] = $computation->autocalculateOrd(
-                    $rowArr, $nonWorkingDays, $employeeData, null, null, $biometricImportsId
+                    $rowArr, $nonWorkingDays, $employeeData, null, null, $r->biometric_imports_id
                 );
-                $summaries[$empName]['ord_ot']    += $ordOt;
-                $summaries[$empName]['ord_nd']    += $ordNd;
-                $summaries[$empName]['ord_nd_ot'] += $ordNdOt;
+                $day['ord_ot']    += $ordOt;
+                $day['ord_nd']    += $ordNd;
+                $day['ord_nd_ot'] += $ordNdOt;
             } else {
                 $rd = $computation->autocalculateRdAndOvertime($rowArr, collect($employeeData));
 
                 if (in_array($holidayType, ['Regular Holiday', 'Legal Holiday'])) {
-                    $summaries[$empName]['lh']    += $rd['rd'];
-                    $summaries[$empName]['lh_ot'] += $rd['rd_ot'];
-                    $summaries[$empName]['lh_nd'] += $rd['rd_nd'];
-                    $summaries[$empName]['lh_nd_ot'] += $rd['rd_nd_ot'];
+                    $prefix = 'lh';
                 } elseif ($holidayType === 'Special Non-Working Holiday') {
-                    $summaries[$empName]['sh']    += $rd['rd'];
-                    $summaries[$empName]['sh_ot'] += $rd['rd_ot'];
-                    $summaries[$empName]['sh_nd'] += $rd['rd_nd'];
-                    $summaries[$empName]['sh_nd_ot'] += $rd['rd_nd_ot'];
+                    $prefix = 'sh';
                 } else {
-                    $summaries[$empName]['rd']    += $rd['rd'];
-                    $summaries[$empName]['rd_ot'] += $rd['rd_ot'];
-                    $summaries[$empName]['rd_nd'] += $rd['rd_nd'];
-                    $summaries[$empName]['rd_nd_ot'] += $rd['rd_nd_ot'];
+                    $prefix = 'rd';
+                }
+
+                $day[$prefix]            += $rd['rd'];
+                $day["{$prefix}_ot"]     += $rd['rd_ot'];
+                $day["{$prefix}_nd"]     += $rd['rd_nd'];
+                $day["{$prefix}_nd_ot"]  += $rd['rd_nd_ot'];
+            }
+            unset($day);
+        }
+
+        $recordedDates = array_unique(array_map(fn($r) => substr($r->record_date, 0, 10), $rows));
+        $missingDates  = [];
+        foreach (\Carbon\CarbonPeriod::create($start, $end) as $d) {
+            if (!in_array($d->toDateString(), $recordedDates)) {
+                $missingDates[] = $d->toDateString();
+            }
+        }
+
+        $importIds = array_values(array_unique(array_map(fn($r) => $r->biometric_imports_id, $rows)));
+
+        return [
+            'start'         => $start,
+            'end'           => $end,
+            'employees'     => $employees,
+            'missing_dates' => $missingDates,
+            'imports'       => DB::table('biometric_imports')->whereIn('id', $importIds)
+                ->orderBy('id')->get(['id', 'title'])->toArray(),
+        ];
+    }
+
+    /**
+     * Generate the payroll CSV (public/python/payroll file.csv) and the DTR
+     * (public/python/reportdtr.xlsx) for the payroll period $start..$end, from the same
+     * daily breakdown. Records from every biometric import dated in the period are included.
+     */
+    public function generatePayrollReport(string $start, string $end): array
+    {
+        // Never leave a DTR from an earlier run downloadable if this run fails.
+        $dtrPath = public_path('python/reportdtr.xlsx');
+        if (file_exists($dtrPath)) {
+            @unlink($dtrPath);
+        }
+
+        $breakdown = $this->buildDailyBreakdown($start, $end);
+
+        if (empty($breakdown['employees'])) {
+            return ['error' => "No attendance records found between {$start} and {$end}"];
+        }
+
+        $summaries = [];
+        foreach ($breakdown['employees'] as $empName => $emp) {
+            $summaries[$empName] = [
+                'id' => $emp['id'], 'name' => $emp['name'], 'basic' => $emp['basic'],
+                'total_regular_days' => 0, 'total_non_working_days' => 0,
+            ] + array_fill_keys(self::BUCKETS, 0);
+
+            foreach ($emp['days'] as $day) {
+                $summaries[$empName]['total_regular_days']     += $day['regular_days'];
+                $summaries[$empName]['total_non_working_days'] += $day['non_working_days'];
+                foreach (self::BUCKETS as $bucket) {
+                    $summaries[$empName][$bucket] += $day[$bucket];
                 }
             }
         }
@@ -877,7 +960,158 @@ class AttendanceProcessor
 
         Log::info("generatePayrollReport: wrote {$outputPath} and {$xlsxPath}", ['employees' => count($summaries)]);
 
-        return ['stats' => ['employees' => count($summaries), 'output' => $outputPath]];
+        $this->generateDtrReport($breakdown, $dtrPath);
+
+        $securityPath   = public_path('python/security.xlsx');
+        $securityGuards = app(SecurityReportService::class)
+            ->generate($breakdown['start'], $breakdown['end'], $securityPath);
+
+        return [
+            'stats' => [
+                'employees'      => count($summaries),
+                'output'         => $outputPath,
+                'dtr'            => $dtrPath,
+                'security_guards' => $securityGuards,
+                'period'         => ['start' => $breakdown['start'], 'end' => $breakdown['end']],
+                'missing_dates'  => $breakdown['missing_dates'],
+                'imports'        => $breakdown['imports'],
+            ],
+        ];
+    }
+
+    /**
+     * Write the DTR (reportdtr.xlsx) in the layout of the old Python report_manual():
+     * one block of row types per employee, one column per day of the payroll period.
+     */
+    protected function generateDtrReport(array $breakdown, string $path): void
+    {
+        // Row type => bucket. Combined holiday rows have no bucket (payroll writes 00:00 for them too).
+        $rowTypes = [
+            'Hours Worked' => 'hours_worked',
+            'OT (Ordinary day)' => 'ord_ot',
+            'SUNDAY Reg 8 hrs' => 'rd',
+            'SPECIAL HOL. Reg 8 hrs' => 'sh',
+            'SPECIAL HOL. + SUNDAY Reg 8 hrs' => null,
+            'LEG. HOLIDAY Reg 8 hrs' => 'lh',
+            'LEG. HOLIDAY + SUNDAY Reg 8 hrs' => null,
+            'LEG. HOLIDAY + LEG. HOLIDAY Reg 8 hrs' => null,
+            'LEG. HOLIDAY + LEG. HOLIDAY + SUNDAY Reg 8 hrs' => null,
+            'ND Reg 8 hrs' => 'ord_nd',
+            'SUNDAY ND Reg 8 hrs' => 'rd_nd',
+            'SPECIAL HOL. ND Reg 8 hrs' => 'sh_nd',
+            'SPECIAL HOL. + SUNDAY ND Reg 8 hrs' => null,
+            'LEG. HOLIDAY ND Reg 8 hrs' => 'lh_nd',
+            'LEG. HOLIDAY + SUNDAY ND Reg 8 hrs' => null,
+            'LEG. HOLIDAY + LEG. HOLIDAY ND Reg 8 hrs' => null,
+            'LEG. HOLIDAY + LEG. HOLIDAY + SUNDAY ND Reg 8 hrs' => null,
+            'EX SUNDAY OT' => 'rd_ot',
+            'EX SPECIAL HOL. OT' => 'sh_ot',
+            'EX SPECIAL HOL. + SUNDAY OT' => null,
+            'EX LEG. HOLIDAY OT' => 'lh_ot',
+            'EX. LEG HOLIDAY + SUNDAY OT' => null,
+            'EX. LEG. HOLIDAY + LEG. HOLIDAY OT' => null,
+            'EX. LEG. HOLIDAY + LEG. HOLIDAY + SUNDAY OT' => null,
+            'EX. NDOT' => 'ord_nd_ot',
+            'EX. SUNDAY NDOT' => 'rd_nd_ot',
+            'EX. SPECIAL HOL. NDOT' => 'sh_nd_ot',
+            'EX. SPECIAL HOL. + SUNDAY NDOT' => null,
+            'EX. LEG. HOLIDAY NDOT' => 'lh_nd_ot',
+            'EX. LEG. HOLIDAY + SUNDAY NDOT' => null,
+            'EX. LEG. HOLIDAY + LEG. HOLIDAY NDOT' => null,
+            'EX. LEG. HOLIDAY + LEG. HOLIDAY + SUNDAY NDOT' => null,
+        ];
+
+        $dates = [];
+        if ($breakdown['start'] && $breakdown['end']) {
+            foreach (\Carbon\CarbonPeriod::create($breakdown['start'], $breakdown['end']) as $d) {
+                $dates[] = $d;
+            }
+        }
+
+        $col       = fn(int $i) => \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($i);
+        $firstDay  = 4;                                // column D
+        $lastDay   = $firstDay + count($dates) - 1;
+        $notesCol  = $lastDay + 1;
+        $totalCol  = $lastDay + 2;
+        $sproutCol = $lastDay + 3;
+        $dayRange  = fn(int $row) => $col($firstDay) . $row . ':' . $col($lastDay) . $row;
+
+        $spreadsheet = new Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->setTitle('Manual Report');
+
+        $sheet->setCellValue('A1', "DTR — Payroll period {$breakdown['start']} to {$breakdown['end']}");
+        $sheet->setCellValue($col($notesCol) . '1', 'ADJUSTMENTS');
+        $sheet->setCellValue($col($totalCol) . '1', 'TOTAL');
+        $sheet->setCellValue($col($sproutCol) . '1', 'Sprout');
+
+        $sheet->setCellValue('A2', 'ID');
+        $sheet->setCellValue('B2', 'NAME');
+        $sheet->setCellValue('C2', 'Type');
+        foreach ($dates as $i => $d) {
+            // Explicit strings keep the leading zero on day numbers ("01").
+            $sheet->setCellValueExplicit($col($firstDay + $i) . '2', $d->format('d'), \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
+            $sheet->setCellValue($col($firstDay + $i) . '3', $d->format('D'));
+        }
+        $sheet->setCellValue($col($notesCol) . '2', 'Indicate as Notes/Comments the Date');
+        $sheet->setCellValue($col($totalCol) . '2', 'HRS');
+        $sheet->setCellValue($col($sproutCol) . '2', 'HRS');
+        $sheet->getStyle('A1:' . $col($sproutCol) . '3')->getFont()->setBold(true);
+
+        $row = 4;
+        foreach ($breakdown['employees'] as $emp) {
+            $blockStart = $row;
+
+            foreach ($rowTypes as $type => $bucket) {
+                $sheet->setCellValueExplicit("A{$row}", (string) $emp['id'], \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
+                $sheet->setCellValue("B{$row}", $emp['name']);
+                $sheet->setCellValue("C{$row}", $type);
+
+                if ($bucket) {
+                    foreach ($dates as $i => $d) {
+                        $hours = $emp['days'][$d->format('Y-m-d')][$bucket] ?? 0;
+                        if (round($hours, 2) != 0) {
+                            $sheet->setCellValue($col($firstDay + $i) . $row, round($hours, 2));
+                        }
+                    }
+                }
+
+                $sheet->setCellValue($col($totalCol) . $row, '=SUM(' . $dayRange($row) . ')');
+                $sheet->setCellValue(
+                    $col($sproutCol) . $row,
+                    $type === 'Hours Worked'
+                        ? '=SUM(' . $dayRange($row) . ')'
+                        : '=TEXT(SUM(' . $dayRange($row) . ')/24,"[hh]:mm")'
+                );
+                $row++;
+            }
+
+            // Yellow totals row per employee (column sums of the block above).
+            $blockEnd = $row - 1;
+            $sheet->setCellValue("B{$row}", $emp['name']);
+            $sheet->setCellValue("C{$row}", 'TOTAL');
+            for ($c = $firstDay; $c <= $totalCol; $c++) {
+                if ($c === $notesCol) continue;
+                $sheet->setCellValue($col($c) . $row, '=SUM(' . $col($c) . $blockStart . ':' . $col($c) . $blockEnd . ')');
+            }
+            $sheet->getStyle("A{$row}:" . $col($sproutCol) . $row)->applyFromArray([
+                'fill' => ['fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID, 'startColor' => ['rgb' => 'FFFF00']],
+                'font' => ['bold' => true],
+            ]);
+            $row++;
+        }
+
+        $sheet->getColumnDimension('A')->setWidth(18);
+        $sheet->getColumnDimension('B')->setWidth(32);
+        $sheet->getColumnDimension('C')->setWidth(42);
+        $sheet->freezePane($col($firstDay) . '4');
+
+        (new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet))->save($path);
+
+        Log::info("generateDtrReport: wrote {$path}", [
+            'employees' => count($breakdown['employees']),
+            'period'    => [$breakdown['start'], $breakdown['end']],
+        ]);
     }
 
     /**

@@ -25,6 +25,11 @@ class AttendanceRecord extends Model
         'late_hours',
         'late_minutes',
         'leaves',
+        'is_manual',
+        'original_earliest_time',
+        'original_latest_time',
+        'edited_by',
+        'edited_at',
         'created_at',
         'updated_at',
     ];

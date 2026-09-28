@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\BiometricHistoryList;
 use Illuminate\Http\Request;
 
 class PageController extends Controller
@@ -23,7 +24,15 @@ class PageController extends Controller
 
     public function reportGeneration()
     {
-        return view('report_generation');
+        // Prefill the payroll period with the active import's period; the admin can change it.
+        $batch = BiometricHistoryList::where('status', 'load')->first();
+
+        $period = [
+            'start' => $batch && $batch->period_start ? substr($batch->period_start, 0, 10) : null,
+            'end'   => $batch && $batch->period_end ? substr($batch->period_end, 0, 10) : null,
+        ];
+
+        return view('report_generation', compact('period'));
     }
 
     public function csvImport()
@@ -58,7 +67,14 @@ class PageController extends Controller
     }
     public function attendanceRecord()
     {
-        return view('attendance_record');
+        $batch = BiometricHistoryList::where('status', 'load')->first();
+
+        $period = [
+            'start' => $batch && $batch->period_start ? substr($batch->period_start, 0, 10) : null,
+            'end'   => $batch && $batch->period_end ? substr($batch->period_end, 0, 10) : null,
+        ];
+
+        return view('attendance_record', compact('period'));
     }
     public function leave()
     {

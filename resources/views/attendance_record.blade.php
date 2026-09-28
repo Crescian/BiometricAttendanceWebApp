@@ -185,6 +185,14 @@
                         {{ __('Attendance Record') }}
                     </h2>
 
+                    <div class="flex items-center space-x-3">
+                    @if ((Auth::user()->role ?? '') === 'admin')
+                        <button onclick="openManualAttendanceModal();"
+                            class="flex items-center px-4 py-2 bg-green-600 text-white font-semibold rounded-lg shadow-sm hover:bg-green-700">
+                            <i class="fa-regular fa-clock mr-2"></i>
+                            Add Time In / Out
+                        </button>
+                    @endif
                     <button onclick="openAttendanceRecord();"
                         class="flex items-center px-4 py-2 bg-white text-green-600 font-semibold rounded-lg shadow-sm border border-green-600 hover:bg-green-50">
                         <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24"
@@ -197,6 +205,7 @@
                             <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
                         </svg>
                     </button>
+                    </div>
                 </div>
                 <!-- Table Section inside Card -->
                 <div class="p-6 text-gray-900">
@@ -218,7 +227,9 @@
                                         <th style="width: 8%">Latest Time</th>
                                         <th style="width: 8%">Weekday</th>
                                         <th style="width: 8%">Leaves</th>
-                                        {{-- <th style="width: 6%">Action</th> --}}
+                                        @if ((Auth::user()->role ?? '') === 'admin')
+                                            <th style="width: 6%">Action</th>
+                                        @endif
                                     </tr>
                                 </thead>
                                 <tbody></tbody>
@@ -228,6 +239,76 @@
                 </div>
             </div>
         </div>
+
+        @if ((Auth::user()->role ?? '') === 'admin')
+            <!-- Manual Time In / Time Out Modal -->
+            <div id="manualAttendanceModal"
+                class="fixed inset-0 z-50 hidden items-center justify-center bg-black bg-opacity-50">
+                <div class="bg-white rounded-lg shadow-lg w-full max-w-lg p-6">
+                    <div class="flex justify-between items-center border-b pb-2 mb-4">
+                        <h3 id="manualAttendanceTitle" class="text-lg font-semibold text-gray-800">Add Time In / Time Out</h3>
+                        <button onclick="closeManualAttendanceModal()"
+                            class="text-gray-500 hover:text-gray-800 text-xl">&times;</button>
+                    </div>
+
+                    <input type="hidden" id="manual_record_id">
+
+                    <div class="space-y-4">
+                        <div>
+                            <label for="manual_employee" class="block text-sm font-semibold text-gray-700">Employee Name</label>
+                            <select id="manual_employee"
+                                class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500 text-sm">
+                            </select>
+                            <input type="text" id="manual_employee_readonly" readonly
+                                class="hidden mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-100 text-sm">
+                        </div>
+
+                        <div>
+                            <label for="manual_record_date" class="block text-sm font-semibold text-gray-700">Record Date</label>
+                            <input type="date" id="manual_record_date"
+                                min="{{ $period['start'] ?? '' }}" max="{{ $period['end'] ?? '' }}"
+                                class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500 text-sm">
+                            <p class="mt-1 text-xs text-gray-500">
+                                @if (!empty($period['start']) && !empty($period['end']))
+                                    Payroll period: {{ $period['start'] }} to {{ $period['end'] }}
+                                @else
+                                    No payroll period set on the active biometric import.
+                                @endif
+                            </p>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label for="manual_earliest_time" class="block text-sm font-semibold text-gray-700">Time In</label>
+                                <input type="time" id="manual_earliest_time"
+                                    class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500 text-sm">
+                            </div>
+                            <div>
+                                <label for="manual_latest_time" class="block text-sm font-semibold text-gray-700">Time Out</label>
+                                <input type="time" id="manual_latest_time"
+                                    class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500 text-sm">
+                            </div>
+                            <p class="col-span-2 text-xs text-gray-500">
+                                A Time Out earlier than Time In is treated as an overnight shift (next day).
+                            </p>
+                        </div>
+
+                        <p id="manualOriginalTimes" class="hidden text-xs text-gray-600 bg-gray-50 border rounded p-2"></p>
+                    </div>
+
+                    <div class="flex justify-end space-x-4 pt-6">
+                        <button type="button" onclick="closeManualAttendanceModal()"
+                            class="bg-gray-300 hover:bg-gray-400 text-sm px-4 py-2 rounded shadow-md">
+                            Cancel
+                        </button>
+                        <button type="button" id="manualAttendanceSubmit" onclick="submitManualAttendance();"
+                            class="bg-green-600 hover:bg-green-700 text-white text-sm px-4 py-2 rounded shadow-md">
+                            Save
+                        </button>
+                    </div>
+                </div>
+            </div>
+        @endif
 
         <!-- Add Certificate Modal -->
         <div id="addCertificateModal"
@@ -479,6 +560,8 @@
                                     render: function(data, type, row) {
                                         if (data === 'COA') {
                                             return '<span class="px-2 py-1 text-xs font-semibold text-white bg-green-600 rounded-full">COA</span>';
+                                        } else if (data === 'MANUAL') {
+                                            return '<span class="px-2 py-1 text-xs font-semibold text-white bg-blue-600 rounded-full">MANUAL</span>';
                                         } else {
                                             return `<span class="px-2 py-1 text-xs font-semibold text-gray-700 bg-gray-200 rounded-full">${data || ''}</span>`;
                                         }
@@ -508,12 +591,14 @@
                                 {
                                     data: 'earliest_time',
                                     name: 'attendance_records.earliest_time',
-                                    width: "8%"
+                                    width: "8%",
+                                    render: renderEditedTime('original_earliest_time')
                                 },
                                 {
                                     data: 'latest_time',
                                     name: 'attendance_records.latest_time',
-                                    width: "8%"
+                                    width: "8%",
+                                    render: renderEditedTime('original_latest_time')
                                 },
                                 {
                                     data: 'weekday',
@@ -525,6 +610,21 @@
                                     name: 'attendance_records.leaves',
                                     width: "8%"
                                 },
+                                ...(userRole === 'admin' ? [{
+                                    data: null,
+                                    orderable: false,
+                                    searchable: false,
+                                    width: "6%",
+                                    render: function(data, type, row) {
+                                        return `
+                                    <div class="flex justify-center">
+                                        <button onclick='openManualAttendanceModal(${JSON.stringify(row).replace(/'/g, "&#39;")});'
+                                            class="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700">
+                                            Edit
+                                        </button>
+                                    </div>`;
+                                    }
+                                }] : []),
                                 // {
                                 //     data: null,
                                 //     orderable: false,
@@ -676,8 +776,12 @@
                             department: departmentName
                         },
                         success: function(response) {
+                            $('#manual_employee').html('<option value="">Select an Employee Name...</option>');
                             response.forEach(function(item) {
                                 $('#employee_name').append(
+                                    `<option value="${item.id}">${item.employee_name}</option>`
+                                );
+                                $('#manual_employee').append(
                                     `<option value="${item.id}">${item.employee_name}</option>`
                                 );
                             });
@@ -739,6 +843,104 @@
         function closeAddCertificateModal() {
             document.getElementById('addCertificateModal').classList.replace('flex', 'hidden');
             document.getElementById('addCertificateForm').reset();
+        }
+
+        /** -----------------------------
+         *  MANUAL TIME IN / TIME OUT
+         * ------------------------------*/
+        function renderEditedTime(originalField) {
+            return function(data, type, row) {
+                if (type !== 'display' || !row.edited_at || row.original_earliest_time === null) {
+                    return data || '';
+                }
+                const tip = `Original: ${row[originalField] || '-'} | Edited by ${row.edited_by || '-'} on ${String(row.edited_at).substring(0, 16)}`;
+                return `${data || ''} <span title="${tip}" class="ml-1 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 bg-amber-100 rounded cursor-help">Edited</span>`;
+            };
+        }
+
+        // hh:mm:ss / hh:mm -> hh:mm for <input type="time">
+        function toTimeInput(value) {
+            return value ? String(value).substring(0, 5) : '';
+        }
+
+        function openManualAttendanceModal(row = null) {
+            const isEdit = !!row;
+
+            $('#manual_record_id').val(isEdit ? row.id : '');
+            $('#manualAttendanceTitle').text(isEdit ? 'Edit Time In / Time Out' : 'Add Time In / Time Out');
+            $('#manual_employee').toggleClass('hidden', isEdit).val('');
+            $('#manual_employee_readonly').toggleClass('hidden', !isEdit).val(isEdit ? row.employee_name : '');
+            $('#manual_record_date').val(isEdit ? String(row.record_date).substring(0, 10) : '')
+                .prop('readonly', isEdit).toggleClass('bg-gray-100', isEdit);
+            $('#manual_earliest_time').val(isEdit ? toTimeInput(row.earliest_time) : '');
+            $('#manual_latest_time').val(isEdit ? toTimeInput(row.latest_time) : '');
+
+            if (isEdit && row.original_earliest_time !== null && row.edited_at) {
+                $('#manualOriginalTimes').removeClass('hidden').text(
+                    `Original punches: ${row.original_earliest_time || '-'} to ${row.original_latest_time || '-'}. ` +
+                    `Last edited by ${row.edited_by || '-'} on ${String(row.edited_at).substring(0, 16)}.`
+                );
+            } else {
+                $('#manualOriginalTimes').addClass('hidden').text('');
+            }
+
+            document.getElementById('manualAttendanceModal').classList.replace('hidden', 'flex');
+        }
+
+        function closeManualAttendanceModal() {
+            document.getElementById('manualAttendanceModal').classList.replace('flex', 'hidden');
+        }
+
+        function submitManualAttendance() {
+            const id = $('#manual_record_id').val();
+            const payload = {
+                earliest_time: $('#manual_earliest_time').val(),
+                latest_time: $('#manual_latest_time').val()
+            };
+
+            if (!id) {
+                payload.employee_management_id = $('#manual_employee').val();
+                payload.record_date = $('#manual_record_date').val();
+
+                if (!payload.employee_management_id || !payload.record_date) {
+                    Swal.fire('Missing fields', 'Select an employee and a record date.', 'warning');
+                    return;
+                }
+            }
+
+            if (!payload.earliest_time || !payload.latest_time) {
+                Swal.fire('Missing fields', 'Enter both Time In and Time Out.', 'warning');
+                return;
+            }
+
+            $('#manualAttendanceSubmit').prop('disabled', true);
+
+            $.ajax({
+                url: id ? `/attendance-record/${id}` : "{{ route('attendance-record.store') }}",
+                type: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': '{{ csrf_token() }}'
+                },
+                data: payload,
+                success: function(response) {
+                    closeManualAttendanceModal();
+                    Swal.fire({
+                        icon: 'success',
+                        title: response.message,
+                        showConfirmButton: false,
+                        timer: 1500
+                    });
+                    $('#attendance-record-table').DataTable().ajax.reload(null, false);
+                },
+                error: function(xhr) {
+                    const json = xhr.responseJSON || {};
+                    const firstError = json.errors ? Object.values(json.errors)[0][0] : null;
+                    Swal.fire('Error', firstError || json.message || 'Something went wrong. Please try again.', 'error');
+                },
+                complete: function() {
+                    $('#manualAttendanceSubmit').prop('disabled', false);
+                }
+            });
         }
 
 

@@ -398,6 +398,27 @@
                                 required>
                         </div>
 
+                        <!-- Payroll Period -->
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label for="period-start" class="block text-sm font-medium text-gray-700 mb-1">
+                                    Payroll Period Start
+                                </label>
+                                <input id="period-start" name="period_start" type="date"
+                                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500">
+                            </div>
+                            <div>
+                                <label for="period-end" class="block text-sm font-medium text-gray-700 mb-1">
+                                    Payroll Period End
+                                </label>
+                                <input id="period-end" name="period_end" type="date"
+                                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500">
+                            </div>
+                            <p class="col-span-2 text-xs text-gray-500">
+                                Defaults to the first and last punch date in the file. Manual attendance entries must fall inside this period.
+                            </p>
+                        </div>
+
                         <!-- File Upload -->
                         <div>
                             <label for="biometricFile" class="block text-sm font-medium text-gray-700 mb-1">
@@ -511,6 +532,7 @@
                             <p><strong>Imported By:</strong> ${item.imported_by}</p>
                             <p><strong>Imported At:</strong> ${item.imported_at}</p>
                             <p><strong>Total Rows:</strong> ${item.total_rows}</p>
+                            <p><strong>Payroll Period:</strong> ${item.period_start && item.period_end ? `${item.period_start.substring(0, 10)} to ${item.period_end.substring(0, 10)}` : 'Not set'}</p>
                             <p><strong>Created:</strong> ${new Date(item.created_at).toLocaleDateString()}</p>
                             <p><strong>Updated:</strong> ${new Date(item.updated_at).toLocaleDateString()}</p>
                         </div>
@@ -654,6 +676,8 @@
             console.log("Upload Result:", result);
 
             currentBiometricImportId = result.biometric_imports_id ?? null;
+            if (result.period_start) $('#period-start').val(result.period_start.substring(0, 10));
+            if (result.period_end) $('#period-end').val(result.period_end.substring(0, 10));
 
             if (file.name.endsWith('.csv') && result.csvData) {
                 csvDataGlobal = result.csvData;
@@ -729,7 +753,9 @@
                     id: currentBiometricImportId,
                     title: title,
                     imported_by: imported_by,
-                    total_rows: total_rows
+                    total_rows: total_rows,
+                    period_start: $('#period-start').val(),
+                    period_end: $('#period-end').val()
                 },
                 success: function(response) {
                     $.ajax({
@@ -756,7 +782,8 @@
                         error: handleAjaxError
                     });
                     console.log(response.id);
-                }
+                },
+                error: handleAjaxError
             });
 
         }
@@ -798,7 +825,7 @@
         function handleAjaxError(xhr, status, error) {
             $('.detailsLoader, #loaderOverlay').hide();
             console.error('AJAX Error:', error);
-            Swal.fire('Error', 'Something went wrong. Please try again.', 'error');
+            Swal.fire('Error', xhr.responseJSON?.message || 'Something went wrong. Please try again.', 'error');
         }
 
         window.closeModal = () => $('#csvModal').hide();

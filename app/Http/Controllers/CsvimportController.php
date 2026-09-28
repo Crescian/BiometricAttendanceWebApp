@@ -134,11 +134,15 @@ class CsvimportController extends Controller
                 return response()->json(['error' => $result['error']], 500);
             }
 
+            $batch = BiometricHistoryList::find($biometricImportId);
+
             return response()->json([
                 'message' => 'File processed successfully',
                 'preview' => $result['preview'] ?? null,
                 'stats'   => $result['stats']   ?? null,
                 'biometric_imports_id' => $biometricImportId,
+                'period_start' => $batch->period_start ?? null,
+                'period_end'   => $batch->period_end ?? null,
             ], 200);
 
         } catch (\Throwable $e) {
@@ -152,19 +156,31 @@ class CsvimportController extends Controller
         set_time_limit(0);
         ini_set('max_execution_time', 0);
 
-        $biometricImportId = $this->biometricHistoryList->getLoadedRecordId();
+        // The payroll period is chosen at generation time; records from every
+        // biometric import dated inside it are included.
+        $v = $request->validate([
+            'period_start' => 'required|date',
+            'period_end'   => 'required|date|after_or_equal:period_start',
+        ]);
+        $start = \Carbon\Carbon::parse($v['period_start'])->toDateString();
+        $end   = \Carbon\Carbon::parse($v['period_end'])->toDateString();
 
         try {
-            $result = $processor->generatePayrollReport($biometricImportId);
+            $result = $processor->generatePayrollReport($start, $end);
 
             if (!empty($result['error'])) {
-                return response()->json(['error' => $result['error']], 500);
+                return response()->json(['error' => $result['error']], 422);
             }
+
+            $stats = $result['stats'] ?? [];
 
             return response()->json([
                 'message' => 'Report generated successfully',
-                'stats'   => $result['stats'] ?? null,
-                'biometric_imports_id' => $biometricImportId,
+                'stats'   => $stats,
+                'period'          => $stats['period'] ?? null,
+                'missing_dates'   => $stats['missing_dates'] ?? [],
+                'imports'         => $stats['imports'] ?? [],
+                'security_guards' => $stats['security_guards'] ?? 0,
             ], 200);
 
         } catch (\Throwable $e) {
@@ -415,17 +431,33 @@ class CsvimportController extends Controller
     public function importCSV(Request $request)
     {
         // Validate the request
-        $request->validate([
-            'biometric_imports_id' => 'required|integer',
+        $v = $request->validate([
+            'biometric_imports_id' => 'required_without:period_start|nullable|integer',
+            'period_start'         => 'nullable|date|required_with:period_end',
+            'period_end'           => 'nullable|date|required_with:period_start|after_or_equal:period_start',
         ]);
 
-        // $biometric_imports_id = '5';
+        // Without an explicit period (upload page), fall back to the import's own period.
+        if (!empty($v['period_start'])) {
+            $periodStart = \Carbon\Carbon::parse($v['period_start'])->toDateString();
+            $periodEnd   = \Carbon\Carbon::parse($v['period_end'])->toDateString();
+        } else {
+            $batch       = BiometricHistoryList::find($v['biometric_imports_id']);
+            $periodStart = $batch && $batch->period_start ? substr($batch->period_start, 0, 10) : null;
+            $periodEnd   = $batch && $batch->period_end ? substr($batch->period_end, 0, 10) : null;
+        }
 
         // Get the current date
         $dates = now()->toDateString();
 
-        // Delete existing data for today's date
-        Csvimport::where('entry_date', $dates)->delete();
+        // Re-generating a payroll period replaces its earlier payroll data. Rows saved
+        // before periods were recorded are still cleared per entry date, as before.
+        Csvimport::where(function ($q) use ($periodStart, $periodEnd) {
+            $q->whereNotNull('period_start')
+                ->where('period_start', $periodStart)->where('period_end', $periodEnd);
+        })->orWhere(function ($q) use ($dates) {
+            $q->whereNull('period_start')->where('entry_date', $dates);
+        })->delete();
 
         // Path to the .csv file
         $path = public_path('python/payroll file.csv');
@@ -456,7 +488,9 @@ class CsvimportController extends Controller
         foreach ($jsonData as $data) {
             $mappedData = [
                 'entry_date' => $dates,
-                'biometric_imports_id' => $request->biometric_imports_id, // 👈 Add this
+                'biometric_imports_id' => $v['biometric_imports_id'] ?? null,
+                'period_start' => $periodStart,
+                'period_end' => $periodEnd,
                 'basic' => $data['Basic'] ?? null,
                 'dh' => $data['DH'] ?? null,
                 'dh_nd' => $data['DH-ND'] ?? null,
@@ -508,7 +542,7 @@ class CsvimportController extends Controller
 
         return response()->json([
             'message' => 'CSV imported successfully.',
-            'id' => $request->biometric_imports_id
+            'id' => $v['biometric_imports_id'] ?? null,
         ]);
     }
 
@@ -647,8 +681,11 @@ class CsvimportController extends Controller
     }
     public function exportCsv(Request $request)
     {
-        // Query the database for records with the given entry_date
-        $records = Csvimport::all();
+        // Only the payroll period that was just generated, when one is given
+        $records = $request->filled(['period_start', 'period_end'])
+            ? Csvimport::where('period_start', $request->period_start)
+                ->where('period_end', $request->period_end)->get()
+            : Csvimport::all();
 
         // Create a new CSV writer instance
         $csv = Writer::createFromFileObject(new SplTempFileObject());

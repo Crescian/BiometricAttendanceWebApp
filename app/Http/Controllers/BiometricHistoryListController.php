@@ -76,6 +76,15 @@ class BiometricHistoryListController extends Controller
      */
     public function store(Request $request)
     {
+        $request->validate([
+            'period_start' => 'nullable|date',
+            'period_end'   => 'nullable|date|after_or_equal:period_start',
+        ]);
+
+        // Only overwrite the period when the admin supplied one; otherwise keep
+        // the default set from the punch dates during upload.
+        $period = array_filter($request->only('period_start', 'period_end'));
+
         // If uploadCSV() already created the row for this import (the normal path),
         // fill in the details the user entered on the "Import Now" step rather than
         // creating a second row — attendance_records/overtimes are already tied to
@@ -86,7 +95,7 @@ class BiometricHistoryListController extends Controller
                 'title' => $request->title,
                 'imported_by' => $request->imported_by,
                 'total_rows' => $request->total_rows,
-            ]);
+            ] + $period);
 
             return response()->json([
                 'message' => 'Biometric import record updated successfully.',
@@ -104,7 +113,7 @@ class BiometricHistoryListController extends Controller
             'imported_by' => $request->imported_by,
             'total_rows' => $request->total_rows,
             'imported_at' => now(), // current date and time
-        ]);
+        ] + $period);
 
         return response()->json([
             'message' => 'Biometric import record created successfully.',

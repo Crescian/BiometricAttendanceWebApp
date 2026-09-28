@@ -41,7 +41,8 @@ class Overtime extends Model
         'biometric_imports_id',
         'schedule_shift',
         'is_cutoff',
-        'attendance_records_id'
+        'attendance_records_id',
+        'employee_management_id',
     ];
 
 }

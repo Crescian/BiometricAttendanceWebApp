@@ -9,6 +9,7 @@ use Illuminate\Http\Request;
 use Maatwebsite\Excel\Concerns\FromCollection;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Database\QueryException;
 
 class EmployeeManagementController extends Controller
 {
@@ -246,10 +247,11 @@ class EmployeeManagementController extends Controller
             'employeeAddFirstName' => 'required|string|max:255',
             'employeeAddLastName' => 'required|string|max:255',
             'employeeAddImmediateSupervisor' => 'required|string|max:255',
-            'employeeAddSchedule' => 'required|string|max:255',
+            'employeeAddSchedule' => $this->scheduleRules(),
             'basicAddSalary' => 'required|numeric',
         ], [
             'employeeAddUniqueId.unique' => 'Unique ID already exists.',
+            'employeeAddSchedule.regex' => 'Work schedule must be whole hours, e.g. 7-16 or 19-7.',
         ]);
 
         // Create a new employee record
@@ -318,6 +320,9 @@ class EmployeeManagementController extends Controller
             'unique_id' => 'required|string|max:255',
             'employee_name' => 'required|string|max:255',
             'basic_salary' => 'required|numeric',
+            'schedule' => $this->scheduleRules(),
+        ], [
+            'schedule.regex' => 'Work schedule must be whole hours, e.g. 7-16 or 19-7.',
         ]);
 
         // Fetch the employee by ID
@@ -403,8 +408,18 @@ class EmployeeManagementController extends Controller
         // Store the unique_id for CSV deletion
         $unique_id = $employee->unique_id;
 
-        // Delete the employee record from the database
-        $employee->delete();
+        // Delete the employee record from the database. Employees with attendance, overtime,
+        // leave or schedule history are protected by foreign keys (ON DELETE RESTRICT).
+        try {
+            $employee->delete();
+        } catch (QueryException $e) {
+            if ($e->getCode() === '23503') {
+                return response()->json([
+                    'message' => 'Cannot delete this employee: they have attendance, overtime, leave or schedule records.',
+                ], 422);
+            }
+            throw $e;
+        }
 
         // Sync the legacy CSV mirror if it exists. The database is the source of
         // truth, so a missing/unavailable CSV should not fail the delete.
@@ -491,4 +506,22 @@ class EmployeeManagementController extends Controller
         }
     }
 
+
+    /**
+     * Work schedule must stay in the "{startHour}-{endHour}" format the overtime
+     * formula reads (ComputationService / AttendanceProcessor), e.g. "7-16", "19-7", "15-24".
+     */
+    private function scheduleRules(): array
+    {
+        return [
+            'required',
+            'regex:/^([0-9]|1[0-9]|2[0-4])-([0-9]|1[0-9]|2[0-4])$/',
+            function ($attribute, $value, $fail) {
+                [$start, $end] = array_pad(explode('-', (string) $value), 2, null);
+                if ($start !== null && (int) $start % 24 === (int) $end % 24) {
+                    $fail('Work schedule start and end time must be different.');
+                }
+            },
+        ];
+    }
 }

@@ -16,6 +16,8 @@ class BiometricHistoryList extends Model
         'imported_by',
         'imported_at',
         'total_rows',
+        'period_start',
+        'period_end',
         'created_at',
         'updated_at',
     ];

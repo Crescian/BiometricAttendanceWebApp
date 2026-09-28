@@ -60,13 +60,24 @@
             <div class="space-y-6">
                 <!-- Schedule -->
                 <div>
-                    <label for="schedule" class="block text-sm font-semibold text-gray-700 mb-2">
+                    <label for="scheduleStart" class="block text-sm font-semibold text-gray-700 mb-2">
                         Work Schedule
                     </label>
-                    <select id="schedule" name="schedule"
-                        class="w-full px-4 py-3 border border-gray-300 rounded-lg bg-white text-gray-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 transition-all duration-200">
-                        <option value="" disabled selected class="text-gray-400">Select schedule</option>
-                    </select>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <span class="block text-xs text-gray-500 mb-1">Time Start</span>
+                            <input type="time" step="3600" id="scheduleStart"
+                                oninput="previewSchedule('schedule')"
+                                class="w-full px-4 py-3 border border-gray-300 rounded-lg bg-white text-gray-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 transition-all duration-200">
+                        </div>
+                        <div>
+                            <span class="block text-xs text-gray-500 mb-1">Time End</span>
+                            <input type="time" step="3600" id="scheduleEnd"
+                                oninput="previewSchedule('schedule')"
+                                class="w-full px-4 py-3 border border-gray-300 rounded-lg bg-white text-gray-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 transition-all duration-200">
+                        </div>
+                    </div>
+                    <p id="schedulePreview" class="mt-2 text-xs text-gray-500">Whole hours only. A Time End earlier than Time Start is an overnight shift.</p>
                 </div>
 
                 <!-- Unique ID -->
@@ -155,12 +166,24 @@
             <div class="space-y-6">
                 <!-- Schedule -->
                 <div>
-                    <label for="employeeAddSchedule" class="block text-sm font-semibold text-gray-700 mb-2">
+                    <label for="employeeAddScheduleStart" class="block text-sm font-semibold text-gray-700 mb-2">
                         Work Schedule
                     </label>
-                    <select id="employeeAddSchedule" name="employeeAddSchedule"
-                        class="w-full px-4 py-3 border border-gray-300 rounded-lg bg-white text-gray-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 transition-all duration-200">
-                    </select>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <span class="block text-xs text-gray-500 mb-1">Time Start</span>
+                            <input type="time" step="3600" id="employeeAddScheduleStart"
+                                oninput="previewSchedule('employeeAddSchedule')"
+                                class="w-full px-4 py-3 border border-gray-300 rounded-lg bg-white text-gray-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 transition-all duration-200">
+                        </div>
+                        <div>
+                            <span class="block text-xs text-gray-500 mb-1">Time End</span>
+                            <input type="time" step="3600" id="employeeAddScheduleEnd"
+                                oninput="previewSchedule('employeeAddSchedule')"
+                                class="w-full px-4 py-3 border border-gray-300 rounded-lg bg-white text-gray-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 transition-all duration-200">
+                        </div>
+                    </div>
+                    <p id="employeeAddSchedulePreview" class="mt-2 text-xs text-gray-500">Whole hours only. A Time End earlier than Time Start is an overnight shift.</p>
                 </div>
 
                 <!-- Unique ID -->
@@ -248,7 +271,6 @@
         const userId = "{{ Auth::user()->id ?? '' }}";
         const userRole = "{{ Auth::user()->role ?? '' }}";
         loadEmployeeTable();
-        loadSchedule();
         loadDepartment();
         let globalID;
 
@@ -274,39 +296,89 @@
             });
         }
 
-        function loadSchedule() {
-            // Load Schedule
-            $('#employeeAddSchedule').html(''); // Clear existing options
-            $('#employeeAddSchedule').append('<option value="">Select Schedule...</option>');
-            $('#schedule').html(''); // Clear existing options
-            $('#schedule').append('<option value="">Select Schedule...</option>');
+        /** -----------------------------
+         *  WORK SCHEDULE <-> FORMULA CODE
+         *  The overtime formula reads employee_management.schedule as
+         *  "{startHour}-{endHour}" (24h, whole hours, no leading zeros), e.g. "7-16", "19-7".
+         * ------------------------------*/
+        // Same night-shift / no-break lists as ComputationService and AttendanceProcessor.
+        const NIGHT_SHIFT_CODES = ['18-6', '19-7', '19-4', '20-5', '15-23', '15-24', '23-7', '23-8'];
+        const NO_BREAK_CODES = ['15-23', '23-7'];
 
-            $.ajax({
-                url: "{{ route('schedule.fetch') }}",
-                type: 'GET',
-                success: function(response) {
-                    // Helper function: convert 24-hour number to 12-hour format
-                    function format12Hour(hour24) {
-                        let hour = parseInt(hour24);
-                        let suffix = hour >= 12 ? 'PM' : 'AM';
-                        hour = hour % 12;
-                        if (hour === 0) hour = 12;
-                        return hour + suffix;
-                    }
-                    response.forEach((item, index) => {
-                        // Convert schedule_name (e.g., "8-15") to 12-hour format
-                        let [from, to] = item.schedule_name.split('-');
-                        let formattedTime = `${format12Hour(from)}-${format12Hour(to)}`;
+        // Returns {code} or {error}.
+        function toScheduleCode(start, end) {
+            if (!start || !end) return { error: 'Enter both Time Start and Time End for the work schedule.' };
 
-                        $('#employeeAddSchedule').append(
-                            `<option value="${item.schedule_name}">${formattedTime} ${item.schedule_type}</option>`
-                        );
-                        $('#schedule').append(
-                            `<option value="${item.schedule_name}">${formattedTime} ${item.schedule_type}</option>`
-                        );
-                    });
-                }
-            });
+            const [sh, sm] = start.split(':').map(Number);
+            const [eh, em] = end.split(':').map(Number);
+
+            if (sm !== 0 || em !== 0) return { error: 'Work schedule must be in whole hours (e.g. 07:00, 16:00).' };
+            if (sh === eh) return { error: 'Work schedule start and end time must be different.' };
+
+            // Midnight end is stored as 24 (e.g. 15-24), matching the formula's shift lists.
+            const endHour = (eh === 0 && sh !== 0) ? 24 : eh;
+            return { code: `${sh}-${endHour}` };
+        }
+
+        // "19-7" -> {start: "19:00", end: "07:00"}; null when the stored value can't be parsed.
+        function fromScheduleCode(code) {
+            const match = /^(\d{1,2})-(\d{1,2})$/.exec(String(code ?? '').trim());
+            if (!match) return null;
+            const pad = h => String(parseInt(h, 10) % 24).padStart(2, '0') + ':00';
+            return { start: pad(match[1]), end: pad(match[2]) };
+        }
+
+        function describeSchedule(code) {
+            const [sh, eh] = code.split('-').map(Number);
+            const parts = [];
+            if (eh < sh || eh === 24) parts.push('overnight');
+            if (NIGHT_SHIFT_CODES.includes(code)) parts.push('night shift');
+            if (NO_BREAK_CODES.includes(code)) parts.push('no break');
+            return parts.join(', ');
+        }
+
+        function previewSchedule(prefix) {
+            const start = $(`#${prefix}Start`).val();
+            const end = $(`#${prefix}End`).val();
+            const $preview = $(`#${prefix}Preview`);
+
+            if (!start || !end) {
+                $preview.removeClass('text-red-600').addClass('text-gray-500')
+                    .text('Whole hours only. A Time End earlier than Time Start is an overnight shift.');
+                return;
+            }
+
+            const result = toScheduleCode(start, end);
+            if (result.error) {
+                $preview.removeClass('text-gray-500').addClass('text-red-600').text(result.error);
+                return;
+            }
+
+            const details = describeSchedule(result.code);
+            $preview.removeClass('text-red-600').addClass('text-gray-500')
+                .html(`Saved as <strong>${result.code}</strong>${details ? ' (' + details + ')' : ''}`);
+        }
+
+        function setScheduleInputs(prefix, code) {
+            const times = fromScheduleCode(code);
+            $(`#${prefix}Start`).val(times ? times.start : '');
+            $(`#${prefix}End`).val(times ? times.end : '');
+            previewSchedule(prefix);
+
+            if (!times && code) {
+                $(`#${prefix}Preview`).removeClass('text-gray-500').addClass('text-red-600')
+                    .text(`Current value "${code}" is not a valid schedule. Enter Time Start and Time End.`);
+            }
+        }
+
+        // Builds the schedule code from the inputs, or shows an alert and returns null.
+        function readScheduleInputs(prefix) {
+            const result = toScheduleCode($(`#${prefix}Start`).val(), $(`#${prefix}End`).val());
+            if (result.error) {
+                Swal.fire({ icon: 'error', title: 'Invalid Work Schedule', text: result.error });
+                return null;
+            }
+            return result.code;
         }
 
         function loadEmployeeTable() {
@@ -544,7 +616,7 @@
                     $('#basicSalary').val(data.basic_salary);
                     $('#department').val(data.department);
                     $('#report_to').val(data.report_to);
-                    $('#schedule').val(data.schedule);
+                    setScheduleInputs('schedule', data.schedule);
                     $('#employeeEditStatus').val(data.status ?? 'Not Active');
                     // Open the modal
                     window.dispatchEvent(new Event('open-modal'));
@@ -563,7 +635,8 @@
             let basicSalary = $('#basicSalary').val();
             let department = $('#department').val();
             let report_to = $('#report_to').val();
-            let schedule = $('#schedule').val();
+            let schedule = readScheduleInputs('schedule');
+            if (schedule === null) return;
             let employeeEditStatus = $('#employeeEditStatus').val();
             $.ajax({
                 url: `{{ route('employees.edit', ['id' => ':id']) }}`.replace(':id', globalID),
@@ -594,7 +667,9 @@
                 },
                 error: function(xhr, status, error) {
                     console.error('Error updating employee data:', error);
-                    alert('Failed to update employee data');
+                    const json = xhr.responseJSON || {};
+                    const firstError = json.errors ? Object.values(json.errors)[0][0] : null;
+                    Swal.fire('Error', firstError || json.message || 'Failed to update employee data', 'error');
                 }
             });
         }
@@ -618,16 +693,16 @@
                             _token: "{{ csrf_token() }}"
                         },
                         success: function(response) {
-                            location.reload();
+                            Swal.fire({
+                                title: "Deleted!",
+                                text: "The employee has been deleted.",
+                                icon: "success"
+                            }).then(() => location.reload());
                         },
                         error: function(xhr) {
-                            alert('An error occurred: ' + xhr.responseText);
+                            const message = (xhr.responseJSON && xhr.responseJSON.message) || xhr.responseText;
+                            Swal.fire('Cannot delete', message, 'error');
                         }
-                    });
-                    Swal.fire({
-                        title: "Deleted!",
-                        text: "Your file has been deleted.",
-                        icon: "success"
                     });
                 }
             });
@@ -638,7 +713,8 @@
             let employeeAddFirstName = $('#employeeAddFirstName').val();
             let employeeAddLastName = $('#employeeAddLastName').val();
             let employeeAddDepartment = $('#employeeAddDepartment').val();
-            let employeeAddSchedule = $('#employeeAddSchedule').val();
+            let employeeAddSchedule = readScheduleInputs('employeeAddSchedule');
+            if (employeeAddSchedule === null) return;
             let employeeAddImmediateSupervisor = $('#employeeAddImmediateSupervisor').val();
             let basicAddSalary = $('#basicAddSalary').val();
             let employeeAddStatus = $('#employeeAddStatus').val();

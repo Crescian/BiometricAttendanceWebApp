@@ -2,6 +2,32 @@
     <div class="px-16 py-12"><!-- Row: Business Unit, Department, Company -->
         <!-- ========== GRID CARDS ========== -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <!-- Users -->
+            <div class="bg-white shadow-lg rounded-lg border border-gray-200 flex flex-col">
+                <div class="bg-white px-6 py-3 rounded-t-lg border-b border-gray-200 flex items-center justify-between">
+                    <h2 class="text-2xl font-bold text-gray-900 flex items-center space-x-2">
+                        <i class="fa-solid fa-user-plus text-3xl" style="color: #8DE11A;"></i>
+                        <span>Users</span>
+                    </h2>
+                    <button onclick="openUserModal()"
+                        class="flex items-center px-4 py-2 bg-white text-green-600 font-semibold rounded-lg shadow-sm border border-green-600 hover:bg-green-50 transition">
+                        <i class="fa-solid fa-plus mr-2"></i> Add
+                    </button>
+                </div>
+                <div class="p-6 flex-1 overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-4 py-2 text-left text-sm font-semibold text-gray-700">Name</th>
+                                <th class="px-4 py-2 text-left text-sm font-semibold text-gray-700">Email</th>
+                                <th class="px-4 py-2 text-left text-sm font-semibold text-gray-700">Role</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-100 userDetails"></tbody>
+                    </table>
+                </div>
+            </div>
+
             <!-- Business Unit -->
             <div class="bg-white shadow-lg rounded-lg border border-gray-200 flex flex-col">
                 <div class="bg-white px-6 py-3 rounded-t-lg border-b border-gray-200 flex items-center justify-between">
@@ -210,6 +236,47 @@
             </div>
         </div>
 
+        <!-- User Modal -->
+        <div id="userModal"
+            class="hidden fixed inset-0 bg-gray-900 bg-opacity-50 flex justify-center items-center z-50">
+            <div class="bg-white w-96 rounded-lg shadow-lg p-6">
+                <h3 class="text-xl font-bold mb-4">Register User</h3>
+                <form id="userForm">
+                    <label class="block text-gray-700 mb-2">Find Person</label>
+                    <div class="relative mb-1">
+                        <input type="text" id="user_search" autocomplete="off"
+                            class="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-green-500"
+                            placeholder="Search by name or email...">
+                        <div id="user_search_results"
+                            class="hidden absolute z-10 w-full bg-white border rounded-lg shadow-lg mt-1 max-h-48 overflow-y-auto">
+                        </div>
+                    </div>
+                    <p class="text-xs text-gray-500 mb-4">Pulled from the ticketing system directory — select a
+                        person to autofill their name and email.</p>
+
+                    <input type="hidden" id="user_name">
+                    <input type="hidden" id="user_email">
+
+                    <div id="user_selected" class="hidden mb-4 px-3 py-2 bg-green-50 border border-green-200 rounded-lg text-sm text-gray-800">
+                    </div>
+
+                    <label class="block text-gray-700 mb-2">Role</label>
+                    <select id="user_role"
+                        class="w-full border rounded-lg px-3 py-2 mb-4 focus:ring-2 focus:ring-green-500">
+                        <option value="user">User</option>
+                        <option value="admin">Admin</option>
+                    </select>
+
+                    <div class="flex justify-end space-x-2">
+                        <button type="button" onclick="closeModal('#userModal')"
+                            class="px-4 py-2 bg-gray-200 rounded-lg">Cancel</button>
+                        <button type="button" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                            onclick="saveUser();">Save</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
     </div>
 
     <!-- ========== jQuery Functions ========== -->
@@ -217,6 +284,163 @@
     <script>
         loadTables();
         getUsers();
+        loadUsers();
+
+        function loadUsers() {
+            $.ajax({
+                url: "{{ route('users.fetch') }}",
+                type: 'GET',
+                success: function(response) {
+                    let userTableBody = '';
+                    if (response.success && response.data.length > 0) {
+                        response.data.forEach(function(user) {
+                            userTableBody += `
+                        <tr>
+                            <td class="px-4 py-2 text-sm text-gray-800">${user.name}</td>
+                            <td class="px-4 py-2 text-sm text-gray-800">${user.email}</td>
+                            <td class="px-4 py-2 text-sm text-gray-800 capitalize">${user.role}</td>
+                        </tr>`;
+                        });
+                    } else {
+                        userTableBody = `
+                    <tr>
+                        <td colspan="3" class="text-center text-gray-500 py-4">No users found.</td>
+                    </tr>`;
+                    }
+                    $('.userDetails').html(userTableBody);
+                },
+            });
+        }
+
+        function saveUser() {
+            if (!$('#user_email').val()) {
+                Swal.fire({
+                    icon: 'warning',
+                    title: 'Select a person first',
+                    text: 'Search the directory above and pick who you\'re registering.',
+                });
+                return;
+            }
+
+            $.ajax({
+                url: "{{ route('users.store') }}",
+                type: 'POST',
+                data: {
+                    _token: $('meta[name="csrf-token"]').attr('content'),
+                    name: $('#user_name').val(),
+                    email: $('#user_email').val(),
+                    role: $('#user_role').val(),
+                },
+                success: function(response) {
+                    closeModal('#userModal');
+                    Swal.fire({
+                        position: "center",
+                        icon: "success",
+                        title: response.message,
+                        showConfirmButton: false,
+                        timer: 1500,
+                        width: "500px"
+                    });
+                    loadUsers();
+                },
+                error: function(xhr) {
+                    Swal.fire({
+                        icon: "error",
+                        title: "Could not register user",
+                        text: xhr.responseJSON?.message || 'Please check the form and try again.',
+                    });
+                },
+            });
+        }
+
+        // ===== Directory search (autofill from the ticketing system) =====
+        let orgDirectory = null; // cached after first load
+
+        function openUserModal() {
+            $('#user_search').val('');
+            $('#user_name').val('');
+            $('#user_email').val('');
+            $('#user_role').val('user');
+            $('#user_selected').addClass('hidden').text('');
+            $('#user_search_results').addClass('hidden').html('');
+
+            openModal('#userModal');
+            loadOrgDirectory();
+        }
+
+        function loadOrgDirectory() {
+            if (orgDirectory !== null) return; // already cached
+
+            $('#user_search').prop('disabled', true).attr('placeholder', 'Loading directory...');
+            $.ajax({
+                url: "{{ route('users.directory') }}",
+                type: 'GET',
+                success: function(response) {
+                    orgDirectory = (response.success && response.data) ? response.data : [];
+                    $('#user_search').prop('disabled', false).attr('placeholder',
+                        'Search by name or email...');
+                },
+                error: function() {
+                    orgDirectory = [];
+                    $('#user_search').prop('disabled', false).attr('placeholder',
+                        'Directory unavailable — type to enter manually');
+                },
+            });
+        }
+
+        $(document).on('input', '#user_search', function() {
+            const term = $(this).val().trim().toLowerCase();
+            $('#user_name').val('');
+            $('#user_email').val('');
+            $('#user_selected').addClass('hidden');
+
+            if (!term || !orgDirectory) {
+                $('#user_search_results').addClass('hidden').html('');
+                return;
+            }
+
+            const matches = orgDirectory.filter(function(person) {
+                return (person.name && person.name.toLowerCase().includes(term)) ||
+                    (person.email && person.email.toLowerCase().includes(term));
+            }).slice(0, 20);
+
+            if (matches.length === 0) {
+                $('#user_search_results').removeClass('hidden').html(
+                    `<div class="px-3 py-2 text-sm text-gray-500">No matches found.</div>`);
+                return;
+            }
+
+            let html = '';
+            matches.forEach(function(person, i) {
+                html += `
+                <div class="px-3 py-2 text-sm hover:bg-green-50 cursor-pointer directory-result"
+                    data-index="${i}">
+                    <div class="font-medium text-gray-800">${person.name}</div>
+                    <div class="text-gray-500">${person.email}${person.department ? ' &middot; ' + person.department : ''}</div>
+                </div>`;
+            });
+            $('#user_search_results').removeClass('hidden').html(html).data('matches', matches);
+        });
+
+        $(document).on('click', '.directory-result', function() {
+            const matches = $('#user_search_results').data('matches') || [];
+            const person = matches[$(this).data('index')];
+            if (!person) return;
+
+            $('#user_name').val(person.name);
+            $('#user_email').val(person.email);
+            $('#user_search').val(person.name);
+            $('#user_search_results').addClass('hidden').html('');
+            $('#user_selected').removeClass('hidden').html(
+                `<i class="fa-solid fa-circle-check text-green-600 mr-1"></i> ${person.name} &mdash; ${person.email}`
+            );
+        });
+
+        $(document).on('click', function(e) {
+            if (!$(e.target).closest('#user_search, #user_search_results').length) {
+                $('#user_search_results').addClass('hidden');
+            }
+        });
 
         function loadTables() {
             // Helper to show badge if head is empty
@@ -436,6 +660,10 @@
                                 'success'
                             );
                             loadTables(); // reload the table after delete
+                        },
+                        error: function(xhr) {
+                            const message = (xhr.responseJSON && xhr.responseJSON.message) || 'Delete failed.';
+                            Swal.fire('Cannot delete', message, 'error');
                         }
                     });
                 }

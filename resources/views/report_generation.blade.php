@@ -168,6 +168,23 @@
             <!-- Container for Displaying Dates -->
             <div id="datesContainer" class="text-sm text-gray-600 mb-4"></div>
 
+            <!-- Payroll Period: records from every biometric upload dated in this range are included -->
+            <div class="grid grid-cols-2 gap-3 mb-4">
+                <div>
+                    <label for="payroll-from" class="block text-sm font-medium text-gray-700 mb-1">Payroll From</label>
+                    <input id="payroll-from" type="date" value="{{ $period['start'] }}"
+                        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500">
+                </div>
+                <div>
+                    <label for="payroll-to" class="block text-sm font-medium text-gray-700 mb-1">Payroll To</label>
+                    <input id="payroll-to" type="date" value="{{ $period['end'] }}"
+                        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500">
+                </div>
+                <p class="col-span-2 text-xs text-gray-500">
+                    Attendance from all biometric uploads within these dates is included.
+                </p>
+            </div>
+
             <!-- Employee Data Processing Section -->
             <div id="processContainer" class="space-y-2 bg-gray-50 border border-gray-200 rounded-xl p-4 shadow-inner">
                 <div class="flex items-center justify-between">
@@ -266,39 +283,49 @@
             });
         }
 
-        function finalizeApprovedEntries() {
+        function payrollPeriod() {
+            return {
+                period_start: $('#payroll-from').val(),
+                period_end: $('#payroll-to').val()
+            };
+        }
+
+        // Generates the payroll file + DTR, loads it into csvimports, then calls onDone(result).
+        function finalizeApprovedEntries(onDone = null) {
             $.ajax({
                 url: "{{ route('report.generation') }}",
                 method: 'POST',
                 headers: {
                     'X-CSRF-TOKEN': '{{ csrf_token() }}'
                 },
-                processData: false,
-                contentType: false,
+                data: payrollPeriod(),
                 success: result => {
-                    uploadCsvData(result.biometric_imports_id);
+                    uploadCsvData(() => onDone && onDone(result));
                 },
                 error: (xhr, status, error) => {
                     console.error('Error:', error);
+                    $('#loaderOverlay').hide();
                     const errorData = xhr.responseJSON || {};
-                    alert(`Error: ${errorData.message || 'An error occurred'}`);
+                    Swal.fire('Report generation failed', errorData.error || errorData.message || 'An error occurred', 'error');
                 }
             });
         }
 
-        function uploadCsvData(biometricImportsId) {
+        function uploadCsvData(onDone = null) {
             $.ajax({
                 url: "{{ route('import.csv') }}",
                 type: 'POST',
                 headers: {
                     'X-CSRF-TOKEN': '{{ csrf_token() }}'
                 },
-                data: {
-                    biometric_imports_id: biometricImportsId
+                data: payrollPeriod(),
+                success: result => {
+                    if (onDone) onDone();
                 },
-                success: result => {},
                 error: (xhr, status, error) => {
                     console.error('Error:', error);
+                    $('#loaderOverlay').hide();
+                    Swal.fire('Error', 'The payroll file was generated but could not be loaded. Please try again.', 'error');
                 }
             });
         }
@@ -329,45 +356,67 @@
         // }
 
         function GenerateCSVreportFiltered(val) {
+            const period = payrollPeriod();
+            if (!period.period_start || !period.period_end) {
+                Swal.fire('Payroll period', 'Please choose the Payroll From and To dates.', 'warning');
+                return;
+            }
+            if (period.period_end < period.period_start) {
+                Swal.fire('Payroll period', 'Payroll To must be on or after Payroll From.', 'warning');
+                return;
+            }
             $('#loaderOverlay').show();
-            finalizeApprovedEntries();
+            // Downloads start only after generation finished, so they never pick up the previous run's files.
+            finalizeApprovedEntries(result => warnMissingDates(result).then(() => downloadReports(val, result)));
+        }
 
+        // Dates in the chosen period with no attendance at all usually mean an upload is missing.
+        function warnMissingDates(result) {
+            const missing = (result && result.missing_dates) || [];
+            if (!missing.length) return Promise.resolve();
+
+            const period = result.period || {};
+            const uploads = (result.imports || []).map(i => i.title || `#${i.id}`).join(', ');
+            return Swal.fire({
+                icon: 'warning',
+                title: 'Dates without attendance',
+                html: `${missing.length} date(s) in the payroll period <strong>${period.start} to ${period.end}</strong> ` +
+                    `have no attendance records. Check that the biometric file for these dates was uploaded.` +
+                    `<br><br><small>Dates: ${missing.join(', ')}</small>` +
+                    (uploads ? `<br><br><small>Included uploads: ${uploads}</small>` : ''),
+                confirmButtonText: 'Continue to download'
+            });
+        }
+
+        function downloadReports(val, result = {}) {
             const authUserId = {{ Auth::check() ? Auth::id() : 'null' }};
             const userRole = "{{ Auth::check() ? Auth::user()->role : '' }}";
-            console.log('Authenticated User ID:', authUserId);
-            console.log('User Role:', userRole);
-            if (userRole === 'admin') {
-                setTimeout(() => {
-                    let link1 = document.createElement('a');
-                    link1.href = '{{ route('download.payrollfile') }}';
-                    link1.download = 'PayrollFile.csv';
-                    link1.click();
 
-                    setTimeout(() => {
-                        let link2 = document.createElement('a');
-                        link2.href = '{{ route('download.reportdtr') }}';
-                        link2.download = 'reportdtr.xlsx';
-                        link2.click();
-                    }, 1000);
-                }, 1000);
+            const download = (href, name) => {
+                let link = document.createElement('a');
+                link.href = href;
+                link.download = name;
+                link.click();
+            };
+
+            if (userRole === 'admin') {
+                download('{{ route('download.payrollfile') }}', 'PayrollFile.csv');
+                // Small gap so the browser doesn't block the second download.
+                setTimeout(() => download('{{ route('download.reportdtr') }}', 'reportdtr.xlsx'), 800);
             } else if (authUserId === 7) {
-                setTimeout(() => {
-                    let link = document.createElement('a');
-                    link.href = '{{ route('download.security') }}';
-                    link.download = 'security.xlsx';
-                    link.click();
-                }, 1000);
+                if (result.security_guards > 0) {
+                    download('{{ route('download.security') }}', 'security.xlsx');
+                } else {
+                    Swal.fire('Security report', 'No security guard attendance was found for this payroll period.', 'info');
+                }
             } else {
                 console.log('No downloads allowed for this user.');
             }
 
-
             $.ajax({
                 url: '{{ route('export.csv') }}',
                 type: 'GET',
-                data: {
-                    entry_date: val // Passing the entry_date to the controller
-                },
+                data: payrollPeriod(),
                 success: function(response) {
                     $('#loaderOverlay').hide();
 
@@ -382,6 +431,7 @@
                     link.click();
                 },
                 error: function(xhr, status, error) {
+                    $('#loaderOverlay').hide();
                     console.error('Error exporting CSV:', error);
                 }
             });

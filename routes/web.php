@@ -17,6 +17,7 @@ use App\Http\Controllers\PageController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\CsvimportController;
 use App\Http\Controllers\EmployeeManagementController;
+use App\Http\Controllers\UserManagementController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -39,6 +40,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('/csv-import', [PageController::class, 'csvImport'])->name('csv.import');
         Route::get('/attendance-tracking', [PageController::class, 'attendanceTracking'])->name('attendance.tracking');
         Route::get('/attendance-log', [PageController::class, 'attendanceLog'])->name('attendance.log');
+
+        // Manual Time In / Time Out on attendance records
+        Route::post('/attendance-record', [AttendanceRecordController::class, 'store'])->name('attendance-record.store');
+        Route::post('/attendance-record/{id}', [AttendanceRecordController::class, 'update'])->name('attendance-record.update');
     });
 });
 
@@ -117,6 +122,12 @@ Route::middleware('auth')->group(function () {
     Route::delete('/department/{id}', [DepartmentController::class, 'destroy'])->name('department.destroy');
     Route::get('/department', [DepartmentController::class, 'getUserDepartment'])->name('department.getUserDepartment');
 
+    Route::middleware('role:admin')->group(function () {
+        Route::get('/users', [UserManagementController::class, 'index'])->name('users.fetch');
+        Route::post('/users', [UserManagementController::class, 'store'])->name('users.store');
+        Route::get('/users/directory', [UserManagementController::class, 'directory'])->name('users.directory');
+    });
+
     Route::get('/business-unit', [BusinessUnitController::class, 'index'])->name('business-unit.fetch');
     Route::post('/business-unit', [BusinessUnitController::class, 'store'])->name('business-unit.store');
     Route::put('/business-unit/{id}', [BusinessUnitController::class, 'update'])->name('business-unit.update');
@@ -180,10 +191,12 @@ Route::middleware('auth')->group(function () {
     })->name('download.reportdtr');
 
     Route::get('/download/security', function () {
+        // Written by SecurityReportService during report generation; absent when the
+        // active batch has no SECURITY attendance.
         $path = public_path('python/security.xlsx');
 
         if (!file_exists($path)) {
-            abort(404, 'File not found.');
+            abort(404, 'No security report for the active biometric import.');
         }
 
         return response()->download($path, 'security.xlsx', [

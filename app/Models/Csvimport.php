@@ -55,6 +55,8 @@ class Csvimport extends Model
         'sun_nd_excess',
         'total_non_working_days_present',
         'total_regular_working_days_present',
-        'biometric_imports_id'
+        'biometric_imports_id',
+        'period_start',
+        'period_end'
     ];
 }
