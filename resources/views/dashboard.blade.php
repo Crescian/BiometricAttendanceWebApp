@@ -50,14 +50,24 @@
             </div>
 
             <!-- My Stuff Card -->
+            @php
+                $statusColor = fn($status) => match (strtolower((string) $status)) {
+                    'approved' => 'text-green-600',
+                    'pending' => 'text-yellow-600',
+                    default => 'text-red-600',
+                };
+            @endphp
             <div class="bg-white shadow-lg rounded-lg border border-gray-200 flex flex-col h-auto">
                 <!-- Header -->
                 <div class="bg-white px-6 py-3 rounded-t-lg border-b border-gray-200 flex justify-between items-center">
-                    <h2 class="text-2xl font-bold text-gray-900">
-                        <i class="fa-solid fa-folder-open text-3xl" style="color: #8DE11A;"></i>
-                        My Stuff
-                    </h2>
-                    <button class="text-sm text-green-600 hover:underline">View All</button>
+                    <div>
+                        <h2 class="text-2xl font-bold text-gray-900">
+                            <i class="fa-solid fa-folder-open text-3xl" style="color: #8DE11A;"></i>
+                            My Stuff
+                        </h2>
+                        <p class="text-xs text-gray-500 mt-1">{{ $myStuff['scope'] }}</p>
+                    </div>
+                    <a href="{{ route('attendance.record') }}" class="text-sm text-green-600 hover:underline">View All</a>
                 </div>
 
                 <!-- Body -->
@@ -67,16 +77,16 @@
                         <h3 class="text-md font-semibold text-gray-800 mb-2 border-b pb-1">Attendance Summary</h3>
                         <div class="grid grid-cols-3 gap-3">
                             <div class="bg-green-50 rounded-lg p-3 text-center border border-green-200">
-                                <p class="text-2xl font-bold text-green-700">24</p>
+                                <p class="text-2xl font-bold text-green-700">{{ number_format($myStuff['present']) }}</p>
                                 <p class="text-xs text-gray-600">Days Present</p>
                             </div>
                             <div class="bg-yellow-50 rounded-lg p-3 text-center border border-yellow-200">
-                                <p class="text-2xl font-bold text-yellow-700">3</p>
+                                <p class="text-2xl font-bold text-yellow-700">{{ number_format($myStuff['late']) }}</p>
                                 <p class="text-xs text-gray-600">Late Entries</p>
                             </div>
                             <div class="bg-red-50 rounded-lg p-3 text-center border border-red-200">
-                                <p class="text-2xl font-bold text-red-700">1</p>
-                                <p class="text-xs text-gray-600">Absences</p>
+                                <p class="text-2xl font-bold text-red-700">{{ number_format($myStuff['on_leave']) }}</p>
+                                <p class="text-xs text-gray-600">On Leave</p>
                             </div>
                         </div>
                     </div>
@@ -85,44 +95,52 @@
                     <div>
                         <h3 class="text-md font-semibold text-gray-800 mb-2 border-b pb-1">Recent Certificates</h3>
                         <ul class="space-y-2 text-sm">
-                            <li class="flex justify-between items-center border-b pb-1">
-                                <span class="text-gray-700">Nov 1, 2025</span>
-                                <span class="text-green-600 font-medium">Approved</span>
-                            </li>
-                            <li class="flex justify-between items-center border-b pb-1">
-                                <span class="text-gray-700">Oct 29, 2025</span>
-                                <span class="text-yellow-600 font-medium">Pending</span>
-                            </li>
-                            <li class="flex justify-between items-center">
-                                <span class="text-gray-700">Oct 25, 2025</span>
-                                <span class="text-green-600 font-medium">Approved</span>
-                            </li>
+                            @forelse ($myStuff['certificates'] as $certificate)
+                                <li class="flex justify-between items-center {{ $loop->last ? '' : 'border-b pb-1' }}">
+                                    <span class="text-gray-700">
+                                        {{ $certificate->date ? \Carbon\Carbon::parse($certificate->date)->format('M j, Y') : '—' }}
+                                        <span class="text-gray-400 text-xs block">{{ $certificate->employee_name }}</span>
+                                    </span>
+                                    <span class="{{ $statusColor($certificate->approval_status) }} font-medium">{{ ucfirst($certificate->approval_status) }}</span>
+                                </li>
+                            @empty
+                                <li class="text-gray-400">No certificates filed yet.</li>
+                            @endforelse
                         </ul>
                     </div>
 
                     <!-- Pending Approvals -->
                     <div>
                         <h3 class="text-md font-semibold text-gray-800 mb-2 border-b pb-1">Pending Approvals</h3>
-                        <p class="text-sm text-gray-600">You currently have <span class="font-bold text-yellow-600">2
-                                pending</span> certificates awaiting admin review.</p>
+                        @if ($myStuff['pending_total'] > 0)
+                            <p class="text-sm text-gray-600 mb-2">You currently have <span class="font-bold text-yellow-600">{{ $myStuff['pending_total'] }}
+                                    pending</span> {{ \Illuminate\Support\Str::plural('request', $myStuff['pending_total']) }} awaiting review.</p>
+                            <ul class="text-sm text-gray-600 space-y-1">
+                                <li class="flex justify-between"><span>Certificates of Attendance</span><span class="font-semibold">{{ $myStuff['pending']['certificates'] }}</span></li>
+                                <li class="flex justify-between"><span>Schedule Adjustments</span><span class="font-semibold">{{ $myStuff['pending']['schedule_adjustments'] }}</span></li>
+                                <li class="flex justify-between"><span>Overtime</span><span class="font-semibold">{{ $myStuff['pending']['overtimes'] }}</span></li>
+                                <li class="flex justify-between"><span>Leaves</span><span class="font-semibold">{{ $myStuff['pending']['leaves'] }}</span></li>
+                            </ul>
+                        @else
+                            <p class="text-sm text-gray-400">Nothing is awaiting review.</p>
+                        @endif
                     </div>
 
                     <!-- Recent Clock-ins -->
                     <div>
                         <h3 class="text-md font-semibold text-gray-800 mb-2 border-b pb-1">Recent Clock-ins/Outs</h3>
                         <ul class="space-y-2 text-sm">
-                            <li class="flex justify-between items-center border-b pb-1">
-                                <span class="text-gray-700">Nov 3, 2025</span>
-                                <span class="text-gray-500">8:02 AM - 5:01 PM</span>
-                            </li>
-                            <li class="flex justify-between items-center border-b pb-1">
-                                <span class="text-gray-700">Nov 2, 2025</span>
-                                <span class="text-gray-500">8:05 AM - 5:03 PM</span>
-                            </li>
-                            <li class="flex justify-between items-center">
-                                <span class="text-gray-700">Nov 1, 2025</span>
-                                <span class="text-gray-500">8:00 AM - 5:00 PM</span>
-                            </li>
+                            @forelse ($myStuff['clock_ins'] as $clockIn)
+                                <li class="flex justify-between items-center {{ $loop->last ? '' : 'border-b pb-1' }}">
+                                    <span class="text-gray-700">
+                                        {{ \Carbon\Carbon::parse($clockIn->record_date)->format('M j, Y') }}
+                                        <span class="text-gray-400 text-xs block">{{ $clockIn->employee_name }}</span>
+                                    </span>
+                                    <span class="text-gray-500">{{ $clockIn->earliest_time ?: '—' }} - {{ $clockIn->latest_time ?: '—' }}</span>
+                                </li>
+                            @empty
+                                <li class="text-gray-400">No clock-ins in the active import.</li>
+                            @endforelse
                         </ul>
                     </div>
                 </div>
@@ -307,7 +325,7 @@
                             class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 text-sm">
                             <option value="" disabled selected>Select holiday type</option>
                             <option value="Regular Holiday">Regular Holiday</option>
-                            <option value="Special Non-working Day">Special Non-working Day</option>
+                            <option value="Special Non-Working Holiday">Special Non-Working Holiday</option>
                             <option value="Others">Others</option>
                         </select>
                     </div>
@@ -529,8 +547,8 @@
                 fetch("/certificate-attendance-summary")
                     .then(response => response.json())
                     .then(data => {
-                        const chartContainer = document.getElementById("certificateOfAttendanceChartContainer");
                         const canvas = document.getElementById("certificateOfAttendanceChart");
+                        const chartContainer = canvas.parentElement;
                         const ctx = canvas.getContext("2d");
 
                         const hasData = data.data && data.data.some(value => value > 0);
@@ -609,7 +627,7 @@
                         });
                     })
                     .catch(() => {
-                        const chartContainer = document.getElementById("certificateOfAttendanceChartContainer");
+                        const chartContainer = document.getElementById("certificateOfAttendanceChart").parentElement;
                         chartContainer.innerHTML = `
                 <div class="flex flex-col items-center justify-center h-64 text-gray-500">
                     <i class="fa-solid fa-triangle-exclamation text-5xl mb-3 text-red-400"></i>
@@ -809,8 +827,7 @@
                                 confirmButtonText: 'OK'
                             }).then(() => {
                                 closeCustomeDates();
-                                // Optional: refresh data table or reload list here
-                                // location.reload();
+                                loadCustomDates();
                             });
                         } else {
                             Swal.fire({

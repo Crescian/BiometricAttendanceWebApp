@@ -14,12 +14,13 @@ class CustomDateController extends Controller
      * @return \Illuminate\Http\Response
      */
 
-    // ✅ Get only upcoming custom dates
+    // ✅ Get only upcoming holidays (Sunday rest days are left out so they don't crowd the list)
     public function index()
     {
         $today = Carbon::today();
 
         $dates = CustomDate::whereDate('record_date', '>=', $today)
+            ->where('holiday_type', '<>', 'Rest Day')
             ->orderBy('record_date', 'asc')
             ->get();
 
