@@ -14,6 +14,56 @@ use App\Services\SecurityReportService;
 class AttendanceProcessor
 {
     /**
+     * Philippine public holidays per year (date => [title, custom_dates.holiday_type]).
+     * Movable holidays differ every year, so each year needs its own list from the yearly proclamation.
+     * Eid'l Fitr / Eid'l Adha are proclaimed separately; add them via the dashboard once announced.
+     */
+    public const PUBLIC_HOLIDAYS = [
+        2025 => [
+            '2025-01-01' => ["New Year's Day", 'Regular Holiday'],
+            '2025-04-17' => ['Maundy Thursday', 'Regular Holiday'],
+            '2025-04-18' => ['Good Friday', 'Regular Holiday'],
+            '2025-04-09' => ['Araw ng Kagitingan (Day of Valor)', 'Regular Holiday'],
+            '2025-05-01' => ['Labor Day', 'Regular Holiday'],
+            '2025-06-06' => ['Eid’l Adha', 'Regular Holiday'],
+            '2025-06-12' => ['Independence Day', 'Regular Holiday'],
+            '2025-08-25' => ['National Heroes Day', 'Regular Holiday'],
+            '2025-11-30' => ['Bonifacio Day', 'Regular Holiday'],
+            '2025-12-25' => ['Christmas Day', 'Regular Holiday'],
+            '2025-12-30' => ['Rizal Day', 'Regular Holiday'],
+            '2025-01-29' => ['Chinese New Year', 'Special Non-Working Holiday'],
+            '2025-04-19' => ['Black Saturday', 'Special Non-Working Holiday'],
+            '2025-08-21' => ['Ninoy Aquino Day', 'Special Non-Working Holiday'],
+            '2025-10-31' => ['All Saints’ Eve', 'Special Non-Working Holiday'],
+            '2025-11-01' => ['All Saints’ Day', 'Special Non-Working Holiday'],
+            '2025-12-08' => ['Feast of the Immaculate Conception', 'Special Non-Working Holiday'],
+            '2025-12-24' => ['Christmas Eve', 'Special Non-Working Holiday'],
+            '2025-12-31' => ['Last Day of the Year', 'Special Non-Working Holiday'],
+        ],
+        // Proclamation No. 1006, s. 2025
+        2026 => [
+            '2026-01-01' => ["New Year's Day", 'Regular Holiday'],
+            '2026-04-02' => ['Maundy Thursday', 'Regular Holiday'],
+            '2026-04-03' => ['Good Friday', 'Regular Holiday'],
+            '2026-04-09' => ['Araw ng Kagitingan (Day of Valor)', 'Regular Holiday'],
+            '2026-05-01' => ['Labor Day', 'Regular Holiday'],
+            '2026-06-12' => ['Independence Day', 'Regular Holiday'],
+            '2026-08-31' => ['National Heroes Day', 'Regular Holiday'],
+            '2026-11-30' => ['Bonifacio Day', 'Regular Holiday'],
+            '2026-12-25' => ['Christmas Day', 'Regular Holiday'],
+            '2026-12-30' => ['Rizal Day', 'Regular Holiday'],
+            '2026-02-17' => ['Chinese New Year', 'Special Non-Working Holiday'],
+            '2026-04-04' => ['Black Saturday', 'Special Non-Working Holiday'],
+            '2026-08-21' => ['Ninoy Aquino Day', 'Special Non-Working Holiday'],
+            '2026-11-01' => ['All Saints’ Day', 'Special Non-Working Holiday'],
+            '2026-11-02' => ['All Souls’ Day', 'Special Non-Working Holiday'],
+            '2026-12-08' => ['Feast of the Immaculate Conception', 'Special Non-Working Holiday'],
+            '2026-12-24' => ['Christmas Eve', 'Special Non-Working Holiday'],
+            '2026-12-31' => ['Last Day of the Year', 'Special Non-Working Holiday'],
+        ],
+    ];
+
+    /**
      * Main entrypoint porting convert_file -> perform_conversion
      *
      * @param string $filePath
@@ -729,6 +779,11 @@ class AttendanceProcessor
         }
     }
 
+    /** DTR colors (HR Daily Attendance template). */
+    protected const DTR_FILL_REG = 'FFF2CC';
+    protected const DTR_FILL_OT  = 'DDEBF7';
+    protected const DTR_HEADER   = '002060';
+
     /** Hour buckets computed per attendance record (payroll columns and DTR rows). */
     protected const BUCKETS = [
         'hours_worked',
@@ -1008,7 +1063,7 @@ class AttendanceProcessor
             'EX SPECIAL HOL. OT' => 'sh_ot',
             'EX SPECIAL HOL. + SUNDAY OT' => null,
             'EX LEG. HOLIDAY OT' => 'lh_ot',
-            'EX. LEG HOLIDAY + SUNDAY OT' => null,
+            'EX. LEG. HOLIDAY + SUNDAY OT' => null,
             'EX. LEG. HOLIDAY + LEG. HOLIDAY OT' => null,
             'EX. LEG. HOLIDAY + LEG. HOLIDAY + SUNDAY OT' => null,
             'EX. NDOT' => 'ord_nd_ot',
@@ -1020,6 +1075,13 @@ class AttendanceProcessor
             'EX. LEG. HOLIDAY + LEG. HOLIDAY NDOT' => null,
             'EX. LEG. HOLIDAY + LEG. HOLIDAY + SUNDAY NDOT' => null,
         ];
+
+        // Type cell colors of the HR Daily Attendance template: OT rows light blue, regular-hour
+        // rows cream; Sunday rows (and Hours Worked) in red font.
+        $typeFill    = fn(string $type) => str_starts_with($type, 'EX') || $type === 'OT (Ordinary day)'
+            ? self::DTR_FILL_OT
+            : self::DTR_FILL_REG;
+        $typeFontRed = fn(string $type) => $type === 'Hours Worked' || str_contains($type, 'SUNDAY');
 
         $dates = [];
         if ($breakdown['start'] && $breakdown['end']) {
@@ -1056,7 +1118,16 @@ class AttendanceProcessor
         $sheet->setCellValue($col($notesCol) . '2', 'Indicate as Notes/Comments the Date');
         $sheet->setCellValue($col($totalCol) . '2', 'HRS');
         $sheet->setCellValue($col($sproutCol) . '2', 'HRS');
-        $sheet->getStyle('A1:' . $col($sproutCol) . '3')->getFont()->setBold(true);
+        $sheet->getStyle('A1:' . $col($sproutCol) . '3')->applyFromArray([
+            'fill'      => ['fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID, 'startColor' => ['rgb' => self::DTR_HEADER]],
+            'font'      => ['bold' => true, 'color' => ['rgb' => 'FFFFFF']],
+            'alignment' => [
+                'horizontal' => \PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER,
+                'vertical'   => \PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_CENTER,
+                'wrapText'   => true,
+            ],
+        ]);
+        $sheet->getRowDimension(2)->setRowHeight(45);
 
         $row = 4;
         foreach ($breakdown['employees'] as $emp) {
@@ -1066,6 +1137,10 @@ class AttendanceProcessor
                 $sheet->setCellValueExplicit("A{$row}", (string) $emp['id'], \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
                 $sheet->setCellValue("B{$row}", $emp['name']);
                 $sheet->setCellValue("C{$row}", $type);
+                $sheet->getStyle("C{$row}")->applyFromArray([
+                    'fill' => ['fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID, 'startColor' => ['rgb' => $typeFill($type)]],
+                    'font' => ['bold' => true, 'size' => 8, 'color' => ['rgb' => $typeFontRed($type) ? 'FF0000' : '000000']],
+                ]);
 
                 if ($bucket) {
                     foreach ($dates as $i => $d) {
@@ -1086,20 +1161,22 @@ class AttendanceProcessor
                 $row++;
             }
 
-            // Yellow totals row per employee (column sums of the block above).
+            // Closing row per employee: ID + NAME, blank Type, block total in a yellow TOTAL cell.
             $blockEnd = $row - 1;
+            $sheet->setCellValueExplicit("A{$row}", (string) $emp['id'], \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
             $sheet->setCellValue("B{$row}", $emp['name']);
-            $sheet->setCellValue("C{$row}", 'TOTAL');
-            for ($c = $firstDay; $c <= $totalCol; $c++) {
-                if ($c === $notesCol) continue;
-                $sheet->setCellValue($col($c) . $row, '=SUM(' . $col($c) . $blockStart . ':' . $col($c) . $blockEnd . ')');
-            }
-            $sheet->getStyle("A{$row}:" . $col($sproutCol) . $row)->applyFromArray([
+            $sheet->setCellValue($col($totalCol) . $row, '=SUM(' . $col($totalCol) . $blockStart . ':' . $col($totalCol) . $blockEnd . ')');
+            $sheet->getStyle($col($totalCol) . $row)->applyFromArray([
                 'fill' => ['fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID, 'startColor' => ['rgb' => 'FFFF00']],
                 'font' => ['bold' => true],
             ]);
             $row++;
         }
+
+        $lastRow = max($row - 1, 3);
+        $sheet->getStyle('A1:' . $col($sproutCol) . $lastRow)->getBorders()->getAllBorders()
+            ->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN);
+        $sheet->setAutoFilter("A3:C{$lastRow}");
 
         $sheet->getColumnDimension('A')->setWidth(18);
         $sheet->getColumnDimension('B')->setWidth(32);
@@ -1258,27 +1335,10 @@ class AttendanceProcessor
             $date->addWeek();
         }
 
-        $holidays = [
-            "{$year}-01-01" => ["New Year's Day", "Regular Holiday"],
-            "{$year}-04-17" => ["Maundy Thursday", "Regular Holiday"],
-            "{$year}-04-18" => ["Good Friday", "Regular Holiday"],
-            "{$year}-04-09" => ["Araw ng Kagitingan (Day of Valor)", "Regular Holiday"],
-            "{$year}-05-01" => ["Labor Day", "Regular Holiday"],
-            "{$year}-06-06" => ["Eid’l Adha", "Regular Holiday"],
-            "{$year}-06-12" => ["Independence Day", "Regular Holiday"],
-            "{$year}-08-25" => ["National Heroes Day", "Regular Holiday"],
-            "{$year}-11-30" => ["Bonifacio Day", "Regular Holiday"],
-            "{$year}-12-25" => ["Christmas Day", "Regular Holiday"],
-            "{$year}-12-30" => ["Rizal Day", "Regular Holiday"],
-            "{$year}-01-29" => ["Chinese New Year", "Special Non-Working Holiday"],
-            "{$year}-04-19" => ["Black Saturday", "Special Non-Working Holiday"],
-            "{$year}-08-21" => ["Ninoy Aquino Day", "Special Non-Working Holiday"],
-            "{$year}-10-31" => ["All Saints’ Eve", "Special Non-Working Holiday"],
-            "{$year}-11-01" => ["All Saints’ Day", "Special Non-Working Holiday"],
-            "{$year}-12-08" => ["Feast of the Immaculate Conception", "Special Non-Working Holiday"],
-            "{$year}-12-24" => ["Christmas Eve", "Special Non-Working Holiday"],
-            "{$year}-12-31" => ["Last Day of the Year", "Special Non-Working Holiday"],
-        ];
+        $holidays = self::PUBLIC_HOLIDAYS[$year] ?? [];
+        if (!$holidays) {
+            Log::warning("calculateTotalNonWorkingDays: no public holiday list for {$year}; only Sundays were seeded.");
+        }
 
         DB::beginTransaction();
         try {
@@ -1289,8 +1349,6 @@ class AttendanceProcessor
                         'record_date' => $s,
                         'title' => 'Sunday Rest Day',
                         'holiday_type' => 'Rest Day',
-                        'created_at' => now(),
-                        'updated_at' => now()
                     ]);
                 }
             }
@@ -1304,8 +1362,6 @@ class AttendanceProcessor
                         'record_date' => $d,
                         'title' => $title2,
                         'holiday_type' => $type,
-                        'created_at' => now(),
-                        'updated_at' => now()
                     ]);
                 }
             }
