@@ -65,68 +65,20 @@ class ComputationService
                 $schedule = (abs($earSec - 7 * 3600) <= abs($earSec - 19 * 3600)) ? '7-19' : '19-7';
             }
 
-            [$startStr] = explode('-', $schedule);
-            $startHour      = (int)$startStr;
-            $lateCutoffSec  = $startHour * 3600 + 15 * 60;
-            $replaceTimeSec = ($startHour + 1) * 3600;
-
-            $earSec = $this->timeToSeconds($earliest);
-            $latSec = $this->timeToSeconds($latest);
-
-            // Late check: shift in_time by 1 hour if past the 15-min grace window
-            if ($earSec > $lateCutoffSec) {
-                $earSec = $replaceTimeSec;
-            }
-
-            if ($latSec <= $earSec) {
-                $latSec += 86400; // crosses midnight
-            }
-
-            if ($earSec === $latSec) {
-                return [0, 0, 0];
-            }
-
-            // Hourly loop: accumulate ND and OT seconds
-            $ndStartSec   = 22 * 3600;
-            $ndEndSec     = 6 * 3600;
-
-            // Regular window = 8 worked hours + 1-hr break = 9 hours elapsed before OT starts.
-            // Mirrors the RD-side rule in autocalculateRdAndOvertime(); schedules with no
-            // built-in break keep the flat 8-hour cutoff.
+            // Regular window = 8 worked hours + 1-hr break = 9 hours elapsed before OT starts;
+            // schedules with no built-in break keep the flat 8-hour cutoff.
             $noBreakSchedules = ['15-23', '23-7'];
             $regularLimit = in_array($schedule, $noBreakSchedules) ? 8 * 3600 : 9 * 3600;
 
-            $workedSec  = 0;
-            $ordOtSec   = 0;
-            $ordNdSec   = 0;
-            $ordNdOtSec = 0;
-
-            $current = $earSec;
-            while ($current < $latSec) {
-                $next     = min($current + 3600, $latSec);
-                $blockSec = $next - $current;
-                $todSec   = $current % 86400;
-                $isNd     = ($todSec >= $ndStartSec || $todSec < $ndEndSec);
-
-                if ($workedSec < $regularLimit) {
-                    $workedSec += $blockSec;
-                    if ($isNd) {
-                        $ordNdSec += $blockSec;
-                    }
-                } else {
-                    if ($isNd) {
-                        $ordNdOtSec += $blockSec;
-                    } else {
-                        $ordOtSec += $blockSec;
-                    }
-                }
-                $current = $next;
+            $w = $this->otWindows($schedule, $earliest, $latest, $regularLimit);
+            if ($w === null) {
+                return [0, 0, 0];
             }
 
             return [
-                round($ordOtSec / 3600, 2),
-                round($ordNdSec / 3600, 2),
-                round($ordNdOtSec / 3600, 2),
+                round($w['ot'] / 3600, 2),
+                round($w['regular_nd'] / 3600, 2),
+                round($w['nd_ot'] / 3600, 2),
             ];
 
         } catch (\Exception $ex) {
@@ -203,70 +155,32 @@ class ComputationService
                 $schedule = (abs($earSec - 7 * 3600) <= abs($earSec - 19 * 3600)) ? '7-19' : '19-7';
             }
 
-            [$startStr] = explode('-', $schedule);
-            $startHour     = (int)$startStr;
-            $lateCutoffSec = $startHour * 3600 + 15 * 60;
-            $replaceTime   = ($startHour + 1) * 3600;
-
-            if ($earSec > $lateCutoffSec) {
-                $earSec = $replaceTime;
-            }
-
-            if ($latSec <= $earSec) {
-                $latSec += 86400;
-            }
-
             // RD base hours by shift type
+            $startHourOfDay = (int) (($earSec % 86400) / 3600);
             $dayShifts = ['7-16', '8-17', '7-19', '6-15', '9-15', '10-18', '10-16'];
             $rdHours   = 0;
 
             if (in_array($schedule, $dayShifts)) {
                 $rdHours = 8;
             } elseif ($schedule === '15-24') {
-                if ((int)(($earSec % 86400) / 3600) >= 15) $rdHours = 6;
+                if ($startHourOfDay >= 15) $rdHours = 6;
             } elseif ($schedule === '23-8') {
-                if ((int)(($earSec % 86400) / 3600) >= 23) $rdHours = 2;
+                if ($startHourOfDay >= 23) $rdHours = 2;
             } elseif ($schedule === '23-7') {
-                if ((int)(($earSec % 86400) / 3600) >= 23) $rdHours = 1;
+                if ($startHourOfDay >= 23) $rdHours = 1;
             }
 
-            // Hourly loop: beyond 9 hours is OT for RD (8 hrs regular + 1 hr break = 9 hrs)
-            $ndStartSec  = 22 * 3600;
-            $ndEndSec    = 6 * 3600;
-            $workedLimit = 9 * 3600;
-
-            $workedSec = 0;
-            $rdOtSec   = 0;
-            $rdNdSec   = 0;
-            $rdNdOtSec = 0;
-
-            $current = $earSec;
-            while ($current < $latSec) {
-                $next     = min($current + 3600, $latSec);
-                $blockSec = $next - $current;
-                $todSec   = $current % 86400;
-                $isNd     = ($todSec >= $ndStartSec || $todSec < $ndEndSec);
-
-                if ($workedSec < $workedLimit) {
-                    $workedSec += $blockSec;
-                    if ($isNd) {
-                        $rdNdSec += $blockSec;
-                    }
-                } else {
-                    if ($isNd) {
-                        $rdNdOtSec += $blockSec;
-                    } else {
-                        $rdOtSec += $blockSec;
-                    }
-                }
-                $current = $next;
+            // Beyond 9 hours is OT on a rest day (8 hrs regular + 1 hr break)
+            $w = $this->otWindows($schedule, $row['earliest_time'] ?? null, $row['latest_time'] ?? null, 9 * 3600);
+            if ($w === null) {
+                return $zero;
             }
 
             return [
                 'rd'       => round($rdHours, 2),
-                'rd_ot'    => round($rdOtSec   / 3600, 2),
-                'rd_nd'    => round($rdNdSec   / 3600, 2),
-                'rd_nd_ot' => round($rdNdOtSec / 3600, 2),
+                'rd_ot'    => round($w['ot'] / 3600, 2),
+                'rd_nd'    => round($w['regular_nd'] / 3600, 2),
+                'rd_nd_ot' => round($w['nd_ot'] / 3600, 2),
             ];
 
         } catch (\Throwable $e) {
@@ -691,6 +605,73 @@ class ComputationService
         );
     }
 
+    /** A day's OT (OT + ND-OT) below this is not counted as OT at all; at or above it counts in full. */
+    public const OT_MINIMUM_SECONDS = 60 * 60;
+
+    /**
+     * Regular and OT windows for one day, to the minute (punch seconds are ignored).
+     *
+     * - Paid start: the schedule start when on time, early or within the 15-minute grace (arriving
+     *   early adds nothing); when late beyond grace, schedule start + 1 hour, or the actual arrival
+     *   if that is later.
+     * - Regular window: paid start + $regularLimitSec. OT: from the end of the regular window to the
+     *   last punch.
+     * - ND: the exact minutes of each window inside 22:00-06:00 (midnight crossing handled).
+     * - OT minimum: if OT + ND-OT is under 1 hour, both are 0; otherwise both count in full.
+     *
+     * Returns seconds ['regular_nd', 'ot', 'nd_ot'], or null without a usable schedule/punch pair.
+     */
+    public function otWindows(?string $schedule, ?string $earliest, ?string $latest, int $regularLimitSec): ?array
+    {
+        if (!$earliest || !$latest || !$schedule || !preg_match('/^\s*(\d{1,2})\s*-/', $schedule, $m)) {
+            return null;
+        }
+
+        $earSec = $this->minuteSeconds($earliest);
+        $latSec = $this->minuteSeconds($latest);
+        if ($earSec === $latSec) {
+            return null;
+        }
+
+        // Everything below is measured in seconds from the schedule start
+        $startSec = ((int) $m[1] % 24) * 3600;
+        $arrival = ($earSec - $startSec + 86400) % 86400;
+        if ($arrival > 43200) {
+            $arrival -= 86400; // arrived before the start
+        }
+        $span = $latSec >= $earSec ? $latSec - $earSec : $latSec + 86400 - $earSec;
+        $out = $arrival + $span;
+
+        $in = $arrival > self::GRACE_SECONDS ? max($arrival, 3600) : 0;
+        $regularEnd = $in + $regularLimitSec;
+
+        $ndOverlap = function (int $from, int $to) use ($startSec): int {
+            if ($to <= $from) {
+                return 0;
+            }
+            $total = 0;
+            // ND windows 22:00-06:00 around the shift, expressed relative to the schedule start
+            for ($day = -1; $day <= 2; $day++) {
+                $ndStart = $day * 86400 + 22 * 3600 - $startSec;
+                $ndEnd = $ndStart + 8 * 3600;
+                $total += max(0, min($to, $ndEnd) - max($from, $ndStart));
+            }
+
+            return $total;
+        };
+
+        $regularNd = $ndOverlap($in, min($out, $regularEnd));
+        $otTotal = max(0, $out - $regularEnd);
+        $ndOt = $ndOverlap($regularEnd, $out);
+        $ot = $otTotal - $ndOt;
+
+        if ($otTotal < self::OT_MINIMUM_SECONDS) {
+            $ot = $ndOt = 0;
+        }
+
+        return ['regular_nd' => $regularNd, 'ot' => $ot, 'nd_ot' => $ndOt];
+    }
+
     /** Arriving up to this many seconds after the schedule start is not late. */
     public const GRACE_SECONDS = 15 * 60;
 
@@ -708,7 +689,7 @@ class ComputationService
      */
     public function lateAndUndertime(?string $schedule, ?string $earliest, ?string $latest, ?string $department = null): array
     {
-        $none = ['late_minutes' => 0, 'undertime_minutes' => 0];
+        $none = ['late_minutes' => 0, 'undertime_minutes' => 0, 'shift_minutes' => null, 'schedule' => null];
         if (!$earliest || !$latest || $earliest === $latest) {
             return $none;
         }
@@ -740,6 +721,8 @@ class ComputationService
         return [
             'late_minutes' => intdiv($lateSec, 60),
             'undertime_minutes' => intdiv($undertimeSec, 60),
+            'shift_minutes' => intdiv($shiftSec, 60), // scheduled start to end, break included
+            'schedule' => $schedule,                    // after SG Vesta 7-19 / 19-7 detection
         ];
     }
 

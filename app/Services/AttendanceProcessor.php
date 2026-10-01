@@ -544,6 +544,8 @@ class AttendanceProcessor
 
         // Preload custom_dates (non-working days)
         $customDates = DB::table('custom_dates')->pluck('record_date')->map(fn($d) => substr($d,0,10))->toArray();
+        $computation  = new ComputationService();
+        $employeeData = DB::table('employee_management')->get()->toArray();
 
         foreach ($rows as $r) {
             try {
@@ -575,22 +577,23 @@ class AttendanceProcessor
                     $this->logSecurityAttendance($r, 'hours_worked', round($hoursWorked));
                 }
 
-                // compute OT and ND in a simplified manner:
-                // - OT = hoursWorked - 8 (if > 8) ; ND = hours between 22:00 - 06:00 (even across midnight)
-                $ord_ot = 0.0;
-                if ($hoursWorked > 8) $ord_ot = $hoursWorked - 8.0;
-
-                $nd_seconds = $this->secondsInNdWindow($r->earliest_time, $r->latest_time);
-                $nd_hours = round($nd_seconds / 3600.0, 2);
-
-                // RD detection (if record_date in custom_dates) - treat as RD
-                $isRD = in_array($record_date, $customDates);
+                // OT / ND by the overtime rules (ComputationService), the same calculation used when
+                // a time is edited or a record is approved, so the Overtime page starts out correct.
+                $rowArr = (array) $r;
+                [$ordOt, $ordNd, $ordNdOt] = $computation->autocalculateOrd(
+                    $rowArr, $customDates, $employeeData, null, null, $r->biometric_imports_id
+                );
+                $rd = $computation->autocalculateRdAndOvertime($rowArr, collect($employeeData));
 
                 // Insert into overtimes table or update existing (mimics log_overtime_to_db behavior)
                 $this->logOrUpdateOvertime($r, [
-                    'ord_ot' => $ord_ot,
-                    'nd_hours' => $nd_hours,
-                    'rd' => $isRD ? ($hoursWorked) : 0,
+                    'ord_ot' => $ordOt,
+                    'ord_nd' => $ordNd,
+                    'ord_nd_ot' => $ordNdOt,
+                    'rd' => $rd['rd'],
+                    'rd_ot' => $rd['rd_ot'],
+                    'rd_nd' => $rd['rd_nd'],
+                    'rd_nd_ot' => $rd['rd_nd_ot'],
                     'biometric_imports_id' => $r->biometric_imports_id,
                     'attendance_records_id' => $r->id
                 ]);
@@ -616,37 +619,6 @@ class AttendanceProcessor
         return $h*3600 + $m*60 + (int)$s;
     }
 
-    /**
-     * Calculate seconds between earliest and latest that fall into ND window (22:00-06:00)
-     * Handles crossing midnight.
-     */
-    protected function secondsInNdWindow($earliestStr, $latestStr): int
-    {
-        $ear = $this->toSeconds($earliestStr); if ($ear === null) return 0;
-        $lat = $this->toSeconds($latestStr); if ($lat === null) return 0;
-        // create timeline from earliest to latest in seconds, allowing crossing midnight
-        $segments = [];
-        if ($lat >= $ear) {
-            $segments[] = [$ear, $lat];
-        } else {
-            // crosses midnight
-            $segments[] = [$ear, 24*3600];
-            $segments[] = [0, $lat];
-        }
-
-        $ndStart = 22*3600;
-        $ndEnd = 6*3600;
-
-        $ndSeconds = 0;
-        foreach ($segments as [$s,$e]) {
-            // two ND windows possibly: [22:00..24:00] and [00:00..06:00]
-            // overlap with [22:00..24:00]
-            $overlap1 = max(0, min($e, 24*3600) - max($s, $ndStart));
-            $overlap2 = max(0, min($e, $ndEnd) - max($s, 0)); // for 0..6
-            $ndSeconds += $overlap1 + $overlap2;
-        }
-        return (int)$ndSeconds;
-    }
 
     /**
      * Insert or update overtimes (mimics Python log_overtime_to_db)
@@ -666,9 +638,7 @@ class AttendanceProcessor
             LIMIT 1
         ", ['ename' => $employeeName, 'rdate' => $recordDate, 'type' => $type, 'bid' => $biometric_imports_id]);
 
-        $ord_ot = $computed['ord_ot'] ?? 0;
-        $rd = $computed['rd'] ?? 0;
-        $nd_hours = $computed['nd_hours'] ?? 0;
+        $hm = fn($key) => $this->formatHoursForDb($computed[$key] ?? 0);
 
         if ($exists) {
             // If type ord and duplicate — skip (python: returns existing id). For RD we may update fields
@@ -678,9 +648,10 @@ class AttendanceProcessor
             } else {
                 // update a few fields if changed (simplified)
                 DB::table('overtimes')->where('id', $exists->id)->update([
-                    'rd' => $rd,
-                    'rd_ot' => $ord_ot,
-                    'rd_nd' => $nd_hours,
+                    'rd' => $hm('rd'),
+                    'rd_ot' => $hm('rd_ot'),
+                    'rd_nd' => $hm('rd_nd'),
+                    'rd_nd_ot' => $hm('rd_nd_ot'),
                     'updated_at' => now()
                 ]);
                 return $exists->id;
@@ -707,13 +678,13 @@ class AttendanceProcessor
             'serial_number' => $attendanceRow->serial_number ?? null,
             'schedule' => $emp->schedule ?? null,
             'schedule_shift' => $emp->schedule_shift ?? null,
-            'ord_ot' => $this->formatHoursForDb($ord_ot),
-            'ord_nd' => '00:00',
-            'ord_nd_ot' => '00:00',
-            'rd' => $this->formatHoursForDb($rd),
-            'rd_ot' => '00:00',
-            'rd_nd' => $this->formatHoursForDb($nd_hours),
-            'rd_nd_ot' => '00:00',
+            'ord_ot' => $hm('ord_ot'),
+            'ord_nd' => $hm('ord_nd'),
+            'ord_nd_ot' => $hm('ord_nd_ot'),
+            'rd' => $hm('rd'),
+            'rd_ot' => $hm('rd_ot'),
+            'rd_nd' => $hm('rd_nd'),
+            'rd_nd_ot' => $hm('rd_nd_ot'),
             'total_non_working_days_present' => 0,
             'late' => $lateMinutes > 0,
             'late_hours' => intdiv($lateMinutes, 60),
@@ -728,6 +699,16 @@ class AttendanceProcessor
         ]);
 
         return $id;
+    }
+
+    /** "HH:MM" (as stored on overtime records) to decimal hours. */
+    protected function hmToHours($hm): float
+    {
+        if (!is_string($hm) || !preg_match('/^(\d+):(\d{2})/', trim($hm), $m)) {
+            return is_numeric($hm) ? (float) $hm : 0.0;
+        }
+
+        return (int) $m[1] + (int) $m[2] / 60;
     }
 
     protected function formatHoursForDb($hoursFloat)
@@ -790,46 +771,25 @@ class AttendanceProcessor
 
     /** Hour buckets computed per attendance record (payroll columns and DTR rows). */
     protected const BUCKETS = [
-        'hours_worked', 'late', 'undertime',
+        'hours_worked',
         'ord_ot', 'ord_nd', 'ord_nd_ot',
         'rd', 'rd_ot', 'rd_nd', 'rd_nd_ot',
         'lh', 'lh_ot', 'lh_nd', 'lh_nd_ot',
         'sh', 'sh_ot', 'sh_nd', 'sh_nd_ot',
     ];
 
+    /** Regular hours per working day; anything beyond is OT and needs approval. */
+    private const REGULAR_DAY_SECONDS = 8 * 3600;
+
     /**
      * Compute every attendance_record dated within the payroll period ($start..$end), from
      * any biometric import, into per-employee, per-date hour buckets. Shared by the payroll
      * file and the DTR so both always show the same numbers. Imports never store the same
      * employee/date twice (see insertAttendanceRecords), so no row is counted twice.
+     *
+     * Hours Worked holds regular hours only (8 max, less late and undertime). OT, rest-day and
+     * holiday hours come from approved overtime records only.
      */
-    /** Minutes after the schedule start that the 15-minute grace period forgives. */
-    private const GRACE_SECONDS = 15 * 60;
-
-    /**
-     * Seconds to credit back when the first punch falls inside the grace period after the
-     * schedule start (0 when on time, early, or late beyond the grace period). Uses the same
-     * schedule rules as ComputationService::autocalculateOrd(), including SG Vesta's 7-19 / 19-7.
-     */
-    protected function graceSeconds(?string $schedule, int $earliestSec, ?string $department): int
-    {
-        if (strtolower(trim((string) $department)) === 'sg vesta') {
-            $schedule = abs($earliestSec - 7 * 3600) <= abs($earliestSec - 19 * 3600) ? '7-19' : '19-7';
-        }
-        if (!$schedule || !preg_match('/^\s*(\d{1,2})\s*-/', $schedule, $m)) {
-            return 0;
-        }
-
-        $startSec = ((int) $m[1] % 24) * 3600;
-        $lateBy   = ($earliestSec - $startSec + 86400) % 86400; // handles a start just before midnight
-
-        // Grace is judged on the punch minute (07:15:40 is 07:15, within grace), like late/undertime;
-        // the credit itself is the actual time back to the schedule start.
-        $lateByMinute = $lateBy - $lateBy % 60;
-
-        return $lateBy > 0 && $lateByMinute <= self::GRACE_SECONDS ? $lateBy : 0;
-    }
-
     protected function buildDailyBreakdown(string $start, string $end): array
     {
         $rows = DB::select("
@@ -860,6 +820,18 @@ class AttendanceProcessor
             ->get(['employee_management_id', 'record_date', 'schedule'])
             ->mapWithKeys(fn($a) => [$a->employee_management_id . '|' . substr($a->record_date, 0, 10) => $a->schedule]);
 
+        // OT, rest-day and holiday hours only count once approved: use the approved overtime
+        // records' figures (as approved, including any time edits), keyed by attendance record.
+        $approvedOt = DB::table('overtimes')
+            ->where('status', 'Approved')
+            ->whereRaw('DATE(record_date) BETWEEN ? AND ?', [$start, $end])
+            ->orderBy('id')
+            ->get(['attendance_records_id', 'employee_management_id', 'record_date',
+                'ord_ot', 'ord_nd_ot', 'rd', 'rd_ot', 'rd_nd', 'rd_nd_ot']);
+        $approvedByRecord = $approvedOt->whereNotNull('attendance_records_id')->keyBy('attendance_records_id');
+        $approvedByEmpDay = $approvedOt->keyBy(fn($o) => $o->employee_management_id . '|' . substr($o->record_date, 0, 10));
+        $hours = fn($hm) => $this->hmToHours($hm);
+
         foreach ($rows as $r) {
             $empName    = $r->employee_name;
             $recordDate = substr($r->record_date, 0, 10);
@@ -887,40 +859,45 @@ class AttendanceProcessor
                 $day['regular_days']++;
             }
 
-            // Hours worked (subtract 1-hour break for non-security schedules)
+            $schedule = $adjustedSchedules[$r->employee_management_id . '|' . $recordDate] ?? $r->schedule;
+            $onLeave  = !empty($r->leaves);
+            $approved = $approvedByRecord[$r->id] ?? $approvedByEmpDay[$r->employee_management_id . '|' . $recordDate] ?? null;
+
+            // Hours Worked = regular hours only, on working days: 8 (or the shift less its break,
+            // if shorter) minus late (beyond grace, in full) and undertime (every minute).
+            // Arriving early or staying late adds nothing here; that is OT, counted once approved.
             $ear = $this->toSeconds($r->earliest_time);
             $lat = $this->toSeconds($r->latest_time);
-            if ($ear !== null && $lat !== null && $ear !== $lat) {
-                $secs = $lat >= $ear ? $lat - $ear : ($lat + 86400) - $ear;
-
-                // Grace period: arriving up to 15 minutes after the schedule start counts from the start
-                $schedule = $adjustedSchedules[$r->employee_management_id . '|' . $recordDate] ?? $r->schedule;
-                $secs += $this->graceSeconds($schedule, $ear, $r->department ?? null);
-
-                // Late (beyond grace, counted in full) and undertime (every minute), working days only
-                if (!$isNonWorking && empty($r->leaves)) {
-                    $lu = $computation->lateAndUndertime($schedule, $r->earliest_time, $r->latest_time, $r->department ?? null);
-                    $day['late']      += $lu['late_minutes'] / 60;
-                    $day['undertime'] += $lu['undertime_minutes'] / 60;
-                }
+            if (!$isNonWorking && !$onLeave && $ear !== null && $lat !== null && $ear !== $lat) {
+                $lu = $computation->lateAndUndertime($schedule, $r->earliest_time, $r->latest_time, $r->department ?? null);
 
                 $noBreakSchedules = ['15-23', '23-7'];
-                $break = in_array($schedule ?? '', $noBreakSchedules) ? 0 : 3600;
-                $day['hours_worked'] += max(($secs - $break) / 3600, 0);
+                $break = in_array($lu['schedule'] ?? $schedule ?? '', $noBreakSchedules) ? 0 : 3600;
+
+                if ($lu['shift_minutes'] !== null) {
+                    $regular = min($lu['shift_minutes'] * 60 - $break, self::REGULAR_DAY_SECONDS)
+                        - ($lu['late_minutes'] + $lu['undertime_minutes']) * 60;
+                } else {
+                    // No usable schedule: actual time less break, still capped at a regular day
+                    $span    = $lat >= $ear ? $lat - $ear : ($lat + 86400) - $ear;
+                    $regular = min($span - $break, self::REGULAR_DAY_SECONDS);
+                }
+                $day['hours_worked'] += max($regular, 0) / 3600;
             }
 
-            $rowArr = (array)$r;
-
             if (!$isNonWorking) {
-                [$ordOt, $ordNd, $ordNdOt] = $computation->autocalculateOrd(
-                    $rowArr, $nonWorkingDays, $employeeData, null, null, $r->biometric_imports_id
-                );
-                $day['ord_ot']    += $ordOt;
-                $day['ord_nd']    += $ordNd;
-                $day['ord_nd_ot'] += $ordNdOt;
-            } else {
-                $rd = $computation->autocalculateRdAndOvertime($rowArr, collect($employeeData));
-
+                // ND on regular hours is a premium on the regular day, not OT: always shown
+                if (!$onLeave) {
+                    [, $ordNd] = $computation->autocalculateOrd(
+                        (array) $r, $nonWorkingDays, $employeeData, null, null, $r->biometric_imports_id
+                    );
+                    $day['ord_nd'] += $ordNd;
+                }
+                if ($approved) {
+                    $day['ord_ot']    += $hours($approved->ord_ot);
+                    $day['ord_nd_ot'] += $hours($approved->ord_nd_ot);
+                }
+            } elseif ($approved) {
                 if (in_array($holidayType, ['Regular Holiday', 'Legal Holiday'])) {
                     $prefix = 'lh';
                 } elseif ($holidayType === 'Special Non-Working Holiday') {
@@ -929,10 +906,10 @@ class AttendanceProcessor
                     $prefix = 'rd';
                 }
 
-                $day[$prefix]            += $rd['rd'];
-                $day["{$prefix}_ot"]     += $rd['rd_ot'];
-                $day["{$prefix}_nd"]     += $rd['rd_nd'];
-                $day["{$prefix}_nd_ot"]  += $rd['rd_nd_ot'];
+                $day[$prefix]            += $hours($approved->rd);
+                $day["{$prefix}_ot"]     += $hours($approved->rd_ot);
+                $day["{$prefix}_nd"]     += $hours($approved->rd_nd);
+                $day["{$prefix}_nd_ot"]  += $hours($approved->rd_nd_ot);
             }
             unset($day);
         }
@@ -1022,8 +999,6 @@ class AttendanceProcessor
             'LH-RD', 'LH-RD-OT', 'LH-RD-ND', 'LH-RD-ND-OT', 'LH-RD-ND-Excess',
             'DH', 'DH-OT', 'DH-ND', 'DH-ND-OT', 'DH-ND-Excess',
             'DH-RD', 'DH-RD-OT', 'DH-RD-ND', 'DH-RD-ND-OT',
-            // Appended so existing column positions stay the same for the payroll import
-            'Late', 'Undertime',
         ];
 
         $csvRows = [];
@@ -1058,8 +1033,6 @@ class AttendanceProcessor
                 '00:00', '00:00', '00:00', '00:00', '00:00',
                 '00:00', '00:00', '00:00', '00:00', '00:00',
                 '00:00', '00:00', '00:00', '00:00',
-                $this->formatHoursForDb($emp['late']),
-                $this->formatHoursForDb($emp['undertime']),
             ];
         }
 
@@ -1114,8 +1087,6 @@ class AttendanceProcessor
         // Row type => bucket. Combined holiday rows have no bucket (payroll writes 00:00 for them too).
         $rowTypes = [
             'Hours Worked' => 'hours_worked',
-            'LATE' => 'late',
-            'UNDERTIME' => 'undertime',
             'OT (Ordinary day)' => 'ord_ot',
             'SUNDAY Reg 8 hrs' => 'rd',
             'SPECIAL HOL. Reg 8 hrs' => 'sh',
@@ -1202,12 +1173,9 @@ class AttendanceProcessor
         ]);
         $sheet->getRowDimension(2)->setRowHeight(45);
 
-        // Deductions are shown per day but kept out of the employee's yellow TOTAL
-        $notInBlockTotal = ['LATE', 'UNDERTIME'];
-
         $row = 4;
         foreach ($breakdown['employees'] as $emp) {
-            $totalRows  = [];
+            $blockStart = $row;
 
             foreach ($rowTypes as $type => $bucket) {
                 $sheet->setCellValueExplicit("A{$row}", (string) $emp['id'], \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
@@ -1228,9 +1196,6 @@ class AttendanceProcessor
                 }
 
                 $sheet->setCellValue($col($totalCol) . $row, '=SUM(' . $dayRange($row) . ')');
-                if (!in_array($type, $notInBlockTotal, true)) {
-                    $totalRows[] = $col($totalCol) . $row;
-                }
                 $sheet->setCellValue(
                     $col($sproutCol) . $row,
                     $type === 'Hours Worked'
@@ -1241,9 +1206,10 @@ class AttendanceProcessor
             }
 
             // Closing row per employee: ID + NAME, blank Type, block total in a yellow TOTAL cell.
+            $blockEnd = $row - 1;
             $sheet->setCellValueExplicit("A{$row}", (string) $emp['id'], \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
             $sheet->setCellValue("B{$row}", $emp['name']);
-            $sheet->setCellValue($col($totalCol) . $row, '=SUM(' . implode(',', $totalRows) . ')');
+            $sheet->setCellValue($col($totalCol) . $row, '=SUM(' . $col($totalCol) . $blockStart . ':' . $col($totalCol) . $blockEnd . ')');
             $sheet->getStyle($col($totalCol) . $row)->applyFromArray([
                 'fill' => ['fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID, 'startColor' => ['rgb' => 'FFFF00']],
                 'font' => ['bold' => true],
