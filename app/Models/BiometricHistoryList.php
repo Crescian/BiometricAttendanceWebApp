@@ -2,12 +2,13 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\Auditable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class BiometricHistoryList extends Model
 {
-    use HasFactory;
+    use Auditable, HasFactory;
     protected $table = 'biometric_imports';
     protected $fillable = [
         'id',

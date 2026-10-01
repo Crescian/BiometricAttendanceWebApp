@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\AuditLogger;
 use App\Models\EmployeeManagement;
 use App\Models\Department;
 use Yajra\DataTables\Facades\DataTables;
@@ -53,6 +54,7 @@ class EmployeeManagementController extends Controller
         }
 
         // Step 1: Truncate table
+        $employeesBefore = DB::table('employee_management')->count();
         DB::table('employee_management')->truncate();
 
         // Step 2: Insert rows (skip header)
@@ -77,6 +79,19 @@ class EmployeeManagementController extends Controller
         if (!empty($data)) {
             EmployeeManagement::insert($data);
         }
+
+        AuditLogger::record('import.employees_replaced', [
+            'category' => 'import', 'action' => 'import',
+            'description' => "Replaced the employee master list from {$request->file('file')->getClientOriginalName()}: "
+                ."{$employeesBefore} employees removed, ".DB::table('employee_management')->count().' imported',
+            'metadata' => [
+                'file' => $request->file('file')->getClientOriginalName(),
+                'bytes' => $request->file('file')->getSize(),
+                'sha256' => hash_file('sha256', $path),
+                'employees_before' => $employeesBefore,
+                'employees_after' => DB::table('employee_management')->count(),
+            ],
+        ]);
 
         return response()->json([
             'success' => true,
@@ -491,6 +506,12 @@ class EmployeeManagementController extends Controller
             }
 
             fclose($csvFile);
+
+            AuditLogger::record('access.employees_exported', [
+                'category' => 'access', 'action' => 'export',
+                'description' => 'Exported '.$employees->count().' employees to BiometricAttendanceInfo.csv',
+                'metadata' => ['count' => $employees->count(), 'sha256' => hash_file('sha256', $filePath)],
+            ]);
 
             return response()->json([
                 'success' => true,

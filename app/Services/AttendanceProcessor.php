@@ -689,6 +689,10 @@ class AttendanceProcessor
 
         // insert new overtime record
         $emp = DB::table('employee_management')->where('employee_name', $employeeName)->first();
+        $isNonWorking = DB::table('custom_dates')->whereRaw('DATE(record_date) = ?', [$recordDate])->exists();
+        $lateMinutes = ($isNonWorking || !empty($attendanceRow->leaves)) ? 0 : (new ComputationService())->lateAndUndertime(
+            $emp->schedule ?? null, $attendanceRow->earliest_time, $attendanceRow->latest_time, $attendanceRow->department ?? ($emp->department ?? null)
+        )['late_minutes'];
         $id = DB::table('overtimes')->insertGetId([
             'unique_id' => $attendanceRow->unique_id ?? 'TMNG-000000-000',
             'first_name' => explode(',', $employeeName)[1] ?? '',
@@ -711,9 +715,9 @@ class AttendanceProcessor
             'rd_nd' => $this->formatHoursForDb($nd_hours),
             'rd_nd_ot' => '00:00',
             'total_non_working_days_present' => 0,
-            'late' => $attendanceRow->late ?? false,
-            'late_hours' => $attendanceRow->late_hours ?? 0,
-            'late_minutes' => $attendanceRow->late_minutes ?? 0,
+            'late' => $lateMinutes > 0,
+            'late_hours' => intdiv($lateMinutes, 60),
+            'late_minutes' => $lateMinutes % 60,
             'out_time_required' => null,
             'status' => 'Pending',
             'biometric_imports_id' => $biometric_imports_id,
@@ -786,7 +790,7 @@ class AttendanceProcessor
 
     /** Hour buckets computed per attendance record (payroll columns and DTR rows). */
     protected const BUCKETS = [
-        'hours_worked',
+        'hours_worked', 'late', 'undertime',
         'ord_ot', 'ord_nd', 'ord_nd_ot',
         'rd', 'rd_ot', 'rd_nd', 'rd_nd_ot',
         'lh', 'lh_ot', 'lh_nd', 'lh_nd_ot',
@@ -799,6 +803,33 @@ class AttendanceProcessor
      * file and the DTR so both always show the same numbers. Imports never store the same
      * employee/date twice (see insertAttendanceRecords), so no row is counted twice.
      */
+    /** Minutes after the schedule start that the 15-minute grace period forgives. */
+    private const GRACE_SECONDS = 15 * 60;
+
+    /**
+     * Seconds to credit back when the first punch falls inside the grace period after the
+     * schedule start (0 when on time, early, or late beyond the grace period). Uses the same
+     * schedule rules as ComputationService::autocalculateOrd(), including SG Vesta's 7-19 / 19-7.
+     */
+    protected function graceSeconds(?string $schedule, int $earliestSec, ?string $department): int
+    {
+        if (strtolower(trim((string) $department)) === 'sg vesta') {
+            $schedule = abs($earliestSec - 7 * 3600) <= abs($earliestSec - 19 * 3600) ? '7-19' : '19-7';
+        }
+        if (!$schedule || !preg_match('/^\s*(\d{1,2})\s*-/', $schedule, $m)) {
+            return 0;
+        }
+
+        $startSec = ((int) $m[1] % 24) * 3600;
+        $lateBy   = ($earliestSec - $startSec + 86400) % 86400; // handles a start just before midnight
+
+        // Grace is judged on the punch minute (07:15:40 is 07:15, within grace), like late/undertime;
+        // the credit itself is the actual time back to the schedule start.
+        $lateByMinute = $lateBy - $lateBy % 60;
+
+        return $lateBy > 0 && $lateByMinute <= self::GRACE_SECONDS ? $lateBy : 0;
+    }
+
     protected function buildDailyBreakdown(string $start, string $end): array
     {
         $rows = DB::select("
@@ -821,6 +852,13 @@ class AttendanceProcessor
         $employeeData = DB::table('employee_management')->get()->toArray();
         $computation  = new ComputationService();
         $employees    = [];
+
+        // Schedule adjustments in the period, by employee and day (same source the OT calculation uses)
+        $adjustedSchedules = DB::table('schedule_adjustments')
+            ->whereRaw('DATE(record_date) BETWEEN ? AND ?', [$start, $end])
+            ->orderBy('id')
+            ->get(['employee_management_id', 'record_date', 'schedule'])
+            ->mapWithKeys(fn($a) => [$a->employee_management_id . '|' . substr($a->record_date, 0, 10) => $a->schedule]);
 
         foreach ($rows as $r) {
             $empName    = $r->employee_name;
@@ -854,8 +892,20 @@ class AttendanceProcessor
             $lat = $this->toSeconds($r->latest_time);
             if ($ear !== null && $lat !== null && $ear !== $lat) {
                 $secs = $lat >= $ear ? $lat - $ear : ($lat + 86400) - $ear;
+
+                // Grace period: arriving up to 15 minutes after the schedule start counts from the start
+                $schedule = $adjustedSchedules[$r->employee_management_id . '|' . $recordDate] ?? $r->schedule;
+                $secs += $this->graceSeconds($schedule, $ear, $r->department ?? null);
+
+                // Late (beyond grace, counted in full) and undertime (every minute), working days only
+                if (!$isNonWorking && empty($r->leaves)) {
+                    $lu = $computation->lateAndUndertime($schedule, $r->earliest_time, $r->latest_time, $r->department ?? null);
+                    $day['late']      += $lu['late_minutes'] / 60;
+                    $day['undertime'] += $lu['undertime_minutes'] / 60;
+                }
+
                 $noBreakSchedules = ['15-23', '23-7'];
-                $break = in_array($r->schedule ?? '', $noBreakSchedules) ? 0 : 3600;
+                $break = in_array($schedule ?? '', $noBreakSchedules) ? 0 : 3600;
                 $day['hours_worked'] += max(($secs - $break) / 3600, 0);
             }
 
@@ -905,6 +955,18 @@ class AttendanceProcessor
             'imports'       => DB::table('biometric_imports')->whereIn('id', $importIds)
                 ->orderBy('id')->get(['id', 'title'])->toArray(),
         ];
+    }
+
+    /**
+     * The report files in public/python are also tracked in git, so a checkout leaves them owned by the
+     * host user and read-only for the web server. The directory itself is writable, so remove such a
+     * file and let the writer create a fresh one instead of failing with "Permission denied".
+     */
+    private function replaceUnwritableOutput(string $path): void
+    {
+        if (is_file($path) && !is_writable($path)) {
+            @unlink($path);
+        }
     }
 
     /**
@@ -960,6 +1022,8 @@ class AttendanceProcessor
             'LH-RD', 'LH-RD-OT', 'LH-RD-ND', 'LH-RD-ND-OT', 'LH-RD-ND-Excess',
             'DH', 'DH-OT', 'DH-ND', 'DH-ND-OT', 'DH-ND-Excess',
             'DH-RD', 'DH-RD-OT', 'DH-RD-ND', 'DH-RD-ND-OT',
+            // Appended so existing column positions stay the same for the payroll import
+            'Late', 'Undertime',
         ];
 
         $csvRows = [];
@@ -994,10 +1058,16 @@ class AttendanceProcessor
                 '00:00', '00:00', '00:00', '00:00', '00:00',
                 '00:00', '00:00', '00:00', '00:00', '00:00',
                 '00:00', '00:00', '00:00', '00:00',
+                $this->formatHoursForDb($emp['late']),
+                $this->formatHoursForDb($emp['undertime']),
             ];
         }
 
+        $this->replaceUnwritableOutput($outputPath);
         $fp = fopen($outputPath, 'w');
+        if ($fp === false) {
+            throw new \RuntimeException("Cannot write {$outputPath}; check that the web server user can write to public/python.");
+        }
         fputcsv($fp, $header);
         foreach ($csvRows as $row) {
             fputcsv($fp, $row);
@@ -1011,6 +1081,7 @@ class AttendanceProcessor
         $sheet = $spreadsheet->getActiveSheet();
         $sheet->fromArray($header, null, 'A1');
         $sheet->fromArray($csvRows, null, 'A2');
+        $this->replaceUnwritableOutput($xlsxPath);
         (new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet))->save($xlsxPath);
 
         Log::info("generatePayrollReport: wrote {$outputPath} and {$xlsxPath}", ['employees' => count($summaries)]);
@@ -1043,6 +1114,8 @@ class AttendanceProcessor
         // Row type => bucket. Combined holiday rows have no bucket (payroll writes 00:00 for them too).
         $rowTypes = [
             'Hours Worked' => 'hours_worked',
+            'LATE' => 'late',
+            'UNDERTIME' => 'undertime',
             'OT (Ordinary day)' => 'ord_ot',
             'SUNDAY Reg 8 hrs' => 'rd',
             'SPECIAL HOL. Reg 8 hrs' => 'sh',
@@ -1129,9 +1202,12 @@ class AttendanceProcessor
         ]);
         $sheet->getRowDimension(2)->setRowHeight(45);
 
+        // Deductions are shown per day but kept out of the employee's yellow TOTAL
+        $notInBlockTotal = ['LATE', 'UNDERTIME'];
+
         $row = 4;
         foreach ($breakdown['employees'] as $emp) {
-            $blockStart = $row;
+            $totalRows  = [];
 
             foreach ($rowTypes as $type => $bucket) {
                 $sheet->setCellValueExplicit("A{$row}", (string) $emp['id'], \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
@@ -1152,6 +1228,9 @@ class AttendanceProcessor
                 }
 
                 $sheet->setCellValue($col($totalCol) . $row, '=SUM(' . $dayRange($row) . ')');
+                if (!in_array($type, $notInBlockTotal, true)) {
+                    $totalRows[] = $col($totalCol) . $row;
+                }
                 $sheet->setCellValue(
                     $col($sproutCol) . $row,
                     $type === 'Hours Worked'
@@ -1162,10 +1241,9 @@ class AttendanceProcessor
             }
 
             // Closing row per employee: ID + NAME, blank Type, block total in a yellow TOTAL cell.
-            $blockEnd = $row - 1;
             $sheet->setCellValueExplicit("A{$row}", (string) $emp['id'], \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
             $sheet->setCellValue("B{$row}", $emp['name']);
-            $sheet->setCellValue($col($totalCol) . $row, '=SUM(' . $col($totalCol) . $blockStart . ':' . $col($totalCol) . $blockEnd . ')');
+            $sheet->setCellValue($col($totalCol) . $row, '=SUM(' . implode(',', $totalRows) . ')');
             $sheet->getStyle($col($totalCol) . $row)->applyFromArray([
                 'fill' => ['fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID, 'startColor' => ['rgb' => 'FFFF00']],
                 'font' => ['bold' => true],

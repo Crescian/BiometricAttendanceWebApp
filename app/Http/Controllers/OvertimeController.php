@@ -2,8 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\AuditLogger;
+use App\Models\Department;
 use App\Models\Overtime;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Yajra\DataTables\Facades\DataTables;
 use App\Models\BiometricHistoryList;
 use App\Services\ComputationService;
@@ -86,6 +89,148 @@ class OvertimeController extends Controller
             return DataTables::of($data)->make(true);
         }
         return view('overtime.fetch');
+    }
+
+    /**
+     * Restrict a query to the departments the current user heads (admins see everything).
+     */
+    protected function restrictToOwnDepartments($query)
+    {
+        if ((Auth::user()->role ?? '') !== 'admin') {
+            $query->whereIn('department', Department::where('department_head', Auth::id())->pluck('department_name'));
+        }
+
+        return $query;
+    }
+
+    /**
+     * Pending overtime of the loaded import that the current user may approve —
+     * the same rows the Overtime page's Pending tab lists.
+     */
+    protected function pendingScope()
+    {
+        return $this->restrictToOwnDepartments(
+            Overtime::where('status', 'Pending')
+                ->where('biometric_imports_id', $this->biometricHistoryList->getLoadedRecordId())
+        );
+    }
+
+    /**
+     * Approve several overtime records at once (Overtime page, "Approve selected").
+     * Only rows that are still Pending change; a department head can only approve
+     * overtime of the departments they head.
+     */
+    public function bulkApprove(Request $request)
+    {
+        $validated = $request->validate([
+            'ids'   => ['required', 'array', 'min:1', 'max:500'],
+            'ids.*' => ['integer'],
+        ]);
+        $ids = array_values(array_unique($validated['ids']));
+
+        $query = $this->restrictToOwnDepartments(
+            Overtime::whereIn('id', $ids)->where('status', 'Pending')
+        );
+
+        $approvedIds = (clone $query)->pluck('id');
+        $approved = DB::transaction(fn () => $query->update(['status' => 'Approved', 'updated_at' => now()]));
+        $skipped  = count($ids) - $approved;
+
+        AuditLogger::record('overtime.bulk_approved', [
+            'category' => 'approval',
+            'action' => 'approve',
+            'outcome' => $approved > 0 ? 'success' : 'failure',
+            'description' => "Bulk approved {$approved} overtime ".($approved === 1 ? 'record' : 'records')
+                ." (selected {$approvedIds->count()} of ".count($ids).' requested)',
+            'old' => ['status' => 'Pending'],
+            'new' => ['status' => 'Approved'],
+            'metadata' => ['mode' => 'selected', 'approved_ids' => $approvedIds->all(), 'requested_ids' => $ids, 'skipped' => $skipped],
+        ]);
+
+        return response()->json([
+            'success'  => true,
+            'approved' => $approved,
+            'skipped'  => $skipped,
+            'message'  => "{$approved} overtime " . ($approved === 1 ? 'record' : 'records') . ' approved.'
+                . ($skipped > 0 ? " {$skipped} skipped (no longer pending or outside your departments)." : ''),
+        ]);
+    }
+
+    /**
+     * Choices for "Bulk approve": pending counts per department, per employee and per date.
+     */
+    public function bulkOptions()
+    {
+        $departments = $this->pendingScope()
+            ->select('department as value', DB::raw('COUNT(*) as count'))
+            ->groupBy('department')
+            ->orderBy('department')
+            ->get();
+
+        $employees = $this->pendingScope()
+            ->select('employee_name as value', 'department', DB::raw('COUNT(*) as count'))
+            ->groupBy('employee_name', 'department')
+            ->orderBy('employee_name')
+            ->get();
+
+        $dates = $this->pendingScope()
+            ->select(DB::raw("TO_CHAR(record_date, 'YYYY-MM-DD') as value"), DB::raw('COUNT(*) as count'))
+            ->groupBy(DB::raw("TO_CHAR(record_date, 'YYYY-MM-DD')"))
+            ->orderBy('value')
+            ->get();
+
+        return response()->json([
+            'success'     => true,
+            'total'       => $this->pendingScope()->count(),
+            'departments' => $departments,
+            'employees'   => $employees,
+            'dates'       => $dates,
+        ]);
+    }
+
+    /**
+     * Approve every pending overtime of one department, one employee or one date,
+     * or all of it (within the loaded import and the user's own departments).
+     */
+    public function bulkApproveBy(Request $request)
+    {
+        $validated = $request->validate([
+            'by'    => ['required', 'in:all,department,employee,date'],
+            'value' => ['required_unless:by,all', 'nullable', 'string', 'max:255'],
+        ]);
+        if ($validated['by'] === 'date') {
+            $request->validate(['value' => ['date_format:Y-m-d']]);
+        }
+
+        $query = $this->pendingScope();
+        match ($validated['by']) {
+            'all'        => null,
+            'department' => $query->where('department', $validated['value']),
+            'employee'   => $query->where('employee_name', $validated['value']),
+            'date'       => $query->whereDate('record_date', $validated['value']),
+        };
+
+        $approvedIds = (clone $query)->pluck('id');
+        $approved = DB::transaction(fn () => $query->update(['status' => 'Approved', 'updated_at' => now()]));
+
+        AuditLogger::record('overtime.bulk_approved', [
+            'category' => 'approval',
+            'action' => 'approve',
+            'outcome' => $approved > 0 ? 'success' : 'failure',
+            'description' => "Bulk approved {$approved} overtime ".($approved === 1 ? 'record' : 'records')
+                .' by '.$validated['by'].($validated['by'] !== 'all' ? ' "'.$validated['value'].'"' : ''),
+            'old' => ['status' => 'Pending'],
+            'new' => ['status' => 'Approved'],
+            'metadata' => ['mode' => $validated['by'], 'value' => $validated['value'] ?? null, 'approved_ids' => $approvedIds->all()],
+        ]);
+
+        return response()->json([
+            'success'  => true,
+            'approved' => $approved,
+            'message'  => $approved > 0
+                ? "{$approved} overtime " . ($approved === 1 ? 'record' : 'records') . ' approved.'
+                : 'There was no pending overtime to approve for this choice.',
+        ]);
     }
 
     public function approve($id)
@@ -202,6 +347,9 @@ class OvertimeController extends Controller
         //     'latest_time' => 'required|date_format:H:i',
         // ]);
 
+        $otFields = ['ord_ot', 'ord_nd', 'ord_nd_ot', 'rd', 'rd_ot', 'rd_nd', 'rd_nd_ot', 'late', 'late_hours', 'late_minutes'];
+        $otBefore = collect($overtime->getAttributes())->only($otFields)->all();
+
         // If original times are empty, store them first before updating
         if (empty($overtime->original_earliest_time)) {
             $overtime->original_earliest_time = $overtime->earliest_time ?? $request->earliest_time;
@@ -250,6 +398,20 @@ class OvertimeController extends Controller
             $overtime->schedule_shift ?? null,
             'ord'
         );
+
+        // The recalculation writes through the query builder, so record its result explicitly
+        $otAfter = collect((array) DB::table('overtimes')->where('id', $overtime->id)->first())->only($otFields)->all();
+        $changedAfter = array_diff_assoc(array_map('strval', $otAfter), array_map('strval', $otBefore));
+        AuditLogger::record('overtime.recalculated', [
+            'category' => 'data',
+            'action' => 'update',
+            'target' => $overtime,
+            'description' => "Recalculated overtime #{$overtime->id} ({$overtime->employee_name}, ".substr($overtime->record_date, 0, 10)
+                .") after time edit to {$overtime->earliest_time}–{$overtime->latest_time}",
+            'old' => array_intersect_key($otBefore, $changedAfter) ?: null,
+            'new' => $changedAfter ?: null,
+            'metadata' => ['earliest_time' => $overtime->earliest_time, 'latest_time' => $overtime->latest_time],
+        ]);
 
         return response()->json([
             'success' => true,

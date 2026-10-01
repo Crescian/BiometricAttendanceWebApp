@@ -93,6 +93,7 @@
             left: calc(50% - 1.25em);
         }
     </style>
+    <x-approval-table-assets />
     {{-- <x-slot name="header">
         <h2 class="font-semibold text-xl text-gray-800 leading-tight">
             {{ __('Overtime Approval') }}
@@ -103,88 +104,65 @@
         <div class="loader"></div>
     </div> --}}
 
-    <div class="px-16 py-5">
-        <div class="p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
-            <!-- Pending -->
-            <div onclick="loadOvertime('Pending');"
-                class="border-4 border-yellow-500 text-gray-900 rounded-xl shadow-md p-6 flex flex-col items-center cursor-pointer hover:scale-105 transition-transform duration-200">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-10 h-10 mb-2 text-yellow-500" fill="none"
-                    viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round"
-                        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <h2 class="text-lg font-semibold">Pending/Resubmitted for editing</h2>
-                <p id="pending-count" class="text-3xl font-bold mt-2">0</p>
-            </div>
-
-            <!-- Approved -->
-            <div onclick="loadOvertime('Approved');"
-                class="border-4 border-green-600 text-gray-900 rounded-xl shadow-md p-6 flex flex-col items-center cursor-pointer hover:scale-105 transition-transform duration-200">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-10 h-10 mb-2 text-green-600" fill="none"
-                    viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-                </svg>
-                <h2 class="text-lg font-semibold">Approved</h2>
-                <p id="approved-count" class="text-3xl font-bold mt-2">0</p>
-            </div>
-
-            <!-- Cancelled -->
-            <div onclick="loadOvertime('Cancelled');"
-                class="border-4 border-red-600 text-gray-900 rounded-xl shadow-md p-6 flex flex-col items-center cursor-pointer hover:scale-105 transition-transform duration-200">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-10 h-10 mb-2 text-red-600" fill="none"
-                    viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-                <h2 class="text-lg font-semibold">Rejected/Cancelled</h2>
-                <p id="cancelled-count" class="text-3xl font-bold mt-2">0</p>
+    <div class="px-2 lg:px-4">
+        <!-- Page header + toolbar -->
+        <div class="flex flex-wrap items-center justify-between gap-3 px-4 pt-4 pb-3">
+            <h1 class="text-xl font-semibold text-gray-900">{{ __('Overtime') }}</h1>
+            <div class="flex flex-wrap items-center gap-2">
+                <x-bulk-approve prefix="ot" table="#overtime-table" title="overtime"
+                    one="overtime record" many="overtime records" on-done="loadOvertimeCounts"
+                    :approve-url="route('overtime.bulkApprove')" :options-url="route('overtime.bulkOptions')"
+                    :approve-by-url="route('overtime.bulkApproveBy')" />
+                <div class="relative">
+                    <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i>
+                    <input id="ot-search" type="search" placeholder="Search"
+                        class="w-48 pl-8 pr-3 py-1.5 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500">
+                </div>
+                <div id="ot-toolbar-buttons" class="flex items-center gap-2"></div>
             </div>
         </div>
 
+        <!-- Table card -->
+        <div class="px-4 pb-4">
+            <div class="bg-white rounded-lg border border-gray-200 shadow-sm">
+                <!-- Status filter -->
+                <x-status-tabs loader="loadOvertime" />
 
-        <!-- Table Section inside Card -->
-        <div class="p-6">
-            <div class="bg-white shadow-lg rounded-lg border border-gray-200">
-                <!-- Card Header -->
-                <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-                    <h2 class="font-bold text-3xl">
-                        <i class="fa-regular fa-clone text-3xl" style="color: #8DE11A; font-size: 40px"></i>
-                        {{ __('Overtimes') }}
-                    </h2>
-                </div>
-                <!-- Card Body -->
-                <div class="p-6 text-gray-900">
-                    <div class="border rounded-lg shadow-sm overflow-hidden">
+                <div class="p-2 text-gray-900">
+                    <div class="border border-gray-200 rounded-md overflow-hidden">
                         <div class="overflow-x-auto">
-                            <table id="overtime-table" class="table-auto w-full text-sm">
-                                <thead class="text-white sticky top-0" style="background-color: #00291B;">
+                            <table id="overtime-table" class="modern-table w-full text-sm">
+                                <thead>
                                     <tr>
-                                        <th class="px-4 py-2 border text-white" style="width: 4%;">ID</th>
-                                        <th class="px-4 py-2 border text-white" style="width: 8%;">Last Name</th>
-                                        <th class="px-4 py-2 border text-white" style="width: 8%;">First Name</th>
-                                        <th class="px-4 py-2 border text-white" style="width: 8%;">Department</th>
-                                        <th class="px-4 py-2 border text-white" style="width: 6%;">Area</th>
-                                        <th class="px-4 py-2 border text-white" style="width: 7%;">Date</th>
-                                        <th class="px-4 py-2 border text-white" style="width: 6%;">Earliest Time</th>
-                                        <th class="px-4 py-2 border text-white" style="width: 6%;">Latest Time</th>
-                                        <th class="px-4 py-2 border text-white" style="width: 7%;">Schedule</th>
-                                        <th class="px-4 py-2 border text-white" style="width: 7%;">Schedule Shift</th>
-                                        <th class="px-4 py-2 border text-white" style="width: 5%;">ORD-OT</th>
-                                        <th class="px-4 py-2 border text-white" style="width: 5%;">Ord-ND</th>
-                                        <th class="px-4 py-2 border text-white" style="width: 5%;">Ord-ND-OT</th>
-                                        <th class="px-4 py-2 border text-white" style="width: 5%;">RD-OT</th>
-                                        <th class="px-4 py-2 border text-white" style="width: 5%;">RD-ND</th>
-                                        <th class="px-4 py-2 border text-white" style="width: 5%;">RD-ND-OT</th>
-                                        <th class="px-4 py-2 border text-white" style="width: 5%;">RD</th>
-                                        <th class="px-4 py-2 border text-white" style="width: 4%;">Late</th>
-                                        <th class="px-4 py-2 border text-white" style="width: 5%;">Late Hours</th>
-                                        <th class="px-4 py-2 border text-white" style="width: 5%;">Late Minutes</th>
-                                        <th class="px-4 py-2 border text-white" style="width: 7%;">Action</th>
-
+                                        <th class="noVis" style="width: 2rem;"></th>
+                                        <th class="noVis" style="width: 2.5rem;">
+                                            <input type="checkbox" id="ot-select-all" title="Select all on this page"
+                                                class="rounded border-gray-300 text-green-600 focus:ring-green-500">
+                                        </th>
+                                        <th>ID</th>
+                                        <th>Employee</th>
+                                        <th>First Name</th>
+                                        <th>Department</th>
+                                        <th>Area</th>
+                                        <th>Date</th>
+                                        <th>Earliest Time</th>
+                                        <th>Latest Time</th>
+                                        <th>Schedule</th>
+                                        <th>Schedule Shift</th>
+                                        <th>ORD-OT</th>
+                                        <th>ORD-ND</th>
+                                        <th>ORD-ND-OT</th>
+                                        <th>RD-OT</th>
+                                        <th>RD-ND</th>
+                                        <th>RD-ND-OT</th>
+                                        <th>RD</th>
+                                        <th>Late</th>
+                                        <th>Late Hours</th>
+                                        <th>Late Minutes</th>
+                                        <th>Action</th>
                                     </tr>
                                 </thead>
-                                <tbody id="overtime-body" class="text-sm text-gray-800 divide-y divide-gray-200">
-                                    <!-- Data will be injected here -->
-                                </tbody>
+                                <tbody id="overtime-body"></tbody>
                             </table>
                         </div>
                     </div>
@@ -294,12 +272,17 @@
         let dataDetails;
         const userId = "{{ Auth::user()->id ?? '' }}";
         const userRole = "{{ Auth::user()->role ?? '' }}";
+
         loadOvertime('Pending');
+        bindTableSearch('#ot-search', '#overtime-table');
 
         function loadOvertime(status = 'Pending') {
+            bulk_ot.setStatus(status);
+
             if ($.fn.DataTable.isDataTable('#overtime-table')) {
                 $('#overtime-table').DataTable().destroy();
             }
+            $('#ot-toolbar-buttons').empty();
             $.ajax({
                 url: "{{ route('department.getUserDepartment') }}",
                 type: 'GET',
@@ -316,104 +299,65 @@
                         dataDetails.department = departmentName;
                     }
                     setTimeout(() => {
-                        $('#overtime-table').DataTable({
+                        const table = $('#overtime-table').DataTable({
                             processing: true,
                             serverSide: true,
                             autoWidth: false,
-                            responsive: true,
-                            lengthChange: true, // only keep this
-                            lengthMenu: [10, 20, 50], // page length options
-                            pageLength: 50, // default rows per page
-                            dom: '<"flex justify-between items-center mb-4"Bf>rt<"flex justify-between items-center mt-4"ip>',
-
+                            responsive: {
+                                details: {
+                                    type: 'column',
+                                    target: 0
+                                }
+                            },
+                            lengthChange: true,
+                            lengthMenu: [10, 20, 50],
+                            pageLength: 50,
+                            dom: 'rt<"flex flex-wrap justify-between items-center gap-2 px-3 py-2 border-t border-gray-200 text-xs text-gray-600"lip>',
+                            search: {
+                                search: $('#ot-search').val() || ''
+                            },
+                            order: [
+                                [2, 'asc']
+                            ],
                             ajax: {
                                 url: "{{ route('overtime.fetch') }}",
                                 data: dataDetails
                             },
-                            buttons: [{
-                                    extend: 'collection',
-                                    text: '<i class="fa fa-download mr-1 text-green-600"></i> Export',
-                                    className: 'flex items-center px-4 py-2 bg-white font-semibold rounded-lg shadow-sm border border-green-600 mt-3',
-                                    attr: {
-                                        style: 'border-color:#16a34a !important;'
-                                    },
-                                    buttons: [{
-                                            extend: 'copyHtml5',
-                                            text: '<i class="fa fa-copy mr-1 text-gray-700"></i> Copy',
-                                            className: 'bg-white text-black px-3 py-1 rounded hover:bg-gray-100 border border-gray-300'
-                                        },
-                                        {
-                                            extend: 'excelHtml5',
-                                            text: '<i class="fa fa-file-excel mr-1 text-green-600"></i> Excel',
-                                            className: 'bg-white text-black px-3 py-1 rounded hover:bg-green-50 border border-gray-300'
-                                        },
-                                        {
-                                            extend: 'csvHtml5',
-                                            text: '<i class="fa fa-file-csv mr-1 text-blue-600"></i> CSV',
-                                            className: 'bg-white text-black px-3 py-1 rounded hover:bg-blue-50 border border-gray-300'
-                                        },
-                                        {
-                                            extend: 'pdfHtml5',
-                                            text: '<i class="fa fa-file-pdf mr-1 text-red-600"></i> PDF',
-                                            className: 'bg-white text-black px-3 py-1 rounded hover:bg-red-50 border border-gray-300'
-                                        },
-                                        {
-                                            extend: 'print',
-                                            text: '<i class="fa fa-print mr-1 text-gray-700"></i> Print',
-                                            className: 'bg-white text-black px-3 py-1 rounded hover:bg-gray-100 border border-gray-300'
-                                        }
-                                    ]
-                                },
+                            drawCallback: function() {
+                                bulk_ot.syncSelectAll();
+                            },
+                            buttons: exportAndColumnButtons(),
+                            columns: [
+                                expandControlColumn,
+                                bulk_ot.checkboxColumn(),
                                 {
-                                    extend: 'colvis',
-                                    text: '<i class="fa fa-columns mr-1 text-green-600"></i> Columns',
-                                    className: 'flex items-center px-4 py-2 bg-white font-semibold rounded-lg shadow-sm border border-green-600 mt-3',
-                                    attr: {
-                                        style: 'border-color:#16a34a !important;'
-                                    },
-                                    columns: ':not(:last-child)', // hide last "action" column
-                                    columnText: function(dt, idx, title) {
-                                        // If no title, define one manually
-                                        const defaultTitles = [
-                                            'ID', 'First Name', 'Last Name',
-                                            'Department',
-                                            'Area', 'Date', 'Earliest Time',
-                                            'Latest Time',
-                                            'Schedule', 'ORD OT', 'ORD ND',
-                                            'ORD ND OT', 'RD OT',
-                                            'RD ND',
-                                            'RD ND OT', 'RD', 'Late', 'Late Hours',
-                                            'Late Minutes',
-                                            'Action'
-                                        ];
-                                        return defaultTitles[idx] ||
-                                            `Column ${idx + 1}`;
-                                    }
-                                }
-                            ],
-                            columns: [{
                                     data: 'unique_id',
                                     name: 'unique_id',
-                                    className: 'px-6 py-4 text-sm font-bold text-gray-900 border-r border-gray-100 text-center'
+                                    className: 'font-semibold text-gray-900'
                                 },
                                 {
                                     data: 'last_name',
                                     name: 'last_name',
-                                    className: 'px-6 py-4 text-sm text-gray-900 border-r border-gray-100'
+                                    className: 'all',
+                                    render: function(data, type, row) {
+                                        return type === 'display' ? employeeCell(row.last_name, row.first_name) :
+                                            `${row.last_name || ''}, ${row.first_name || ''}`;
+                                    }
                                 },
                                 {
+                                    // Hidden; kept so searching by first name still works
                                     data: 'first_name',
                                     name: 'first_name',
-                                    className: 'px-6 py-4 text-sm text-gray-900 border-r border-gray-100'
+                                    visible: false,
+                                    className: 'noVis never'
                                 },
                                 {
                                     data: 'department',
                                     name: 'department',
-                                    className: 'px-6 py-4 text-sm text-gray-900 border-r border-gray-100 text-center',
                                     render: function(data, type, row) {
                                         if (!data || data.trim() === '' || data ===
                                             'Not Assigned') {
-                                            return `<span class="px-2 py-1 text-xs font-semibold rounded-full bg-gray-300 text-gray-800">Not Assigned</span>`;
+                                            return `<span class="px-1.5 py-0.5 text-[11px] font-semibold rounded-full bg-gray-300 text-gray-800">Not Assigned</span>`;
                                         }
 
                                         // Generate consistent color based on department name
@@ -434,167 +378,100 @@
                                             colors.length;
                                         const colorClass = colors[index];
 
-                                        return `<span class="px-2 py-1 text-xs font-semibold rounded-full ${colorClass}">${data}</span>`;
+                                        return `<span class="px-1.5 py-0.5 text-[11px] font-semibold rounded-full ${colorClass}">${data}</span>`;
                                     }
                                 },
                                 {
                                     data: 'attendance_area',
-                                    name: 'attendance_area',
-                                    className: 'px-6 py-4 text-sm text-gray-800 border-r border-gray-100 text-center'
-                                }, {
+                                    name: 'attendance_area'
+                                },
+                                {
                                     data: 'record_date',
                                     name: 'record_date',
-                                    className: 'px-6 py-4 text-sm text-gray-800 border-r border-gray-100 text-center',
                                     render: function(data) {
                                         if (!data) return '';
                                         // Keep only the date part before the space
                                         return data.split(' ')[0];
                                     }
                                 },
+                                { data: 'earliest_time', name: 'earliest_time' },
+                                { data: 'latest_time', name: 'latest_time' },
+                                { data: 'schedule', name: 'schedule' },
+                                { data: 'schedule_shift', name: 'schedule_shift' },
+                                { data: 'ord_ot', name: 'ord_ot', className: 'text-center' },
+                                { data: 'ord_nd', name: 'ord_nd', className: 'text-center' },
+                                { data: 'ord_nd_ot', name: 'ord_nd_ot', className: 'text-center' },
+                                { data: 'rd_ot', name: 'rd_ot', className: 'text-center' },
+                                { data: 'rd_nd', name: 'rd_nd', className: 'text-center' },
+                                { data: 'rd_nd_ot', name: 'rd_nd_ot', className: 'text-center' },
+                                { data: 'rd', name: 'rd', className: 'text-center' },
                                 {
-                                    data: 'earliest_time',
-                                    name: 'earliest_time',
-                                    className: 'px-6 py-4 text-sm text-gray-800 border-r border-gray-100'
-                                },
-                                {
-                                    data: 'latest_time',
-                                    name: 'latest_time',
-                                    className: 'px-6 py-4 text-sm text-gray-800 border-r border-gray-100'
-                                },
-                                {
-                                    data: 'schedule',
-                                    name: 'schedule',
-                                    className: 'px-6 py-4 text-sm text-gray-800 border-r border-gray-100'
-                                },
-                                {
-                                    data: 'schedule_shift',
-                                    name: 'schedule_shift',
-                                    className: 'px-6 py-4 text-sm text-gray-800 border-r border-gray-100'
-                                },
-                                {
-                                    data: 'ord_ot',
-                                    name: 'ord_ot',
-                                    className: 'px-6 py-4 text-sm text-gray-700 border-r border-gray-100 text-center'
-                                },
-                                {
-                                    data: 'ord_nd',
-                                    name: 'ord_nd',
-                                    className: 'px-6 py-4 text-sm text-gray-700 border-r border-gray-100 text-center'
-                                },
-                                {
-                                    data: 'ord_nd_ot',
-                                    name: 'ord_nd_ot',
-                                    className: 'px-6 py-4 text-sm text-gray-700 border-r border-gray-100 text-center'
-                                },
-                                {
-                                    data: 'rd_ot',
-                                    name: 'rd_ot',
-                                    className: 'px-6 py-4 text-sm text-gray-700 border-r border-gray-100 text-center'
-                                },
-                                {
-                                    data: 'rd_nd',
-                                    name: 'rd_nd',
-                                    className: 'px-6 py-4 text-sm text-gray-700 border-r border-gray-100 text-center'
-                                },
-                                {
-                                    data: 'rd_nd_ot',
-                                    name: 'rd_nd_ot',
-                                    className: 'px-6 py-4 text-sm text-gray-700 border-r border-gray-100 text-center'
-                                },
-                                {
-                                    data: 'rd',
-                                    name: 'rd',
-                                    className: 'px-6 py-4 text-sm text-gray-700 border-r border-gray-100 text-center'
-                                }, {
                                     data: 'late',
                                     name: 'late',
-                                    className: 'px-6 py-4 text-sm text-gray-700 border-r border-gray-100 text-center',
-                                    render: function(data, type, row) {
-                                        if (data === true || data === 'true' || data ===
-                                            1) {
-                                            // Late is false → red badge
-                                            return `<span class="px-2 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800">Late</span>`;
-                                        } else {
-                                            // Late is true → green badge
-                                            return `<span class="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">Not Late</span>`;
+                                    className: 'text-center',
+                                    render: function(data) {
+                                        if (data === true || data === 'true' || data === 1) {
+                                            return `<span class="px-1.5 py-0.5 text-[11px] font-semibold rounded-full bg-red-100 text-red-800">Late</span>`;
                                         }
+                                        return `<span class="px-1.5 py-0.5 text-[11px] font-semibold rounded-full bg-green-100 text-green-800">Not Late</span>`;
                                     }
                                 },
-                                {
-                                    data: 'late_hours',
-                                    name: 'late_hours',
-                                    className: 'px-6 py-4 text-sm text-gray-700 border-r border-gray-100 text-center'
-                                },
-                                {
-                                    data: 'late_minutes',
-                                    name: 'late_minutes',
-                                    className: 'px-6 py-4 text-sm text-gray-700 border-r border-gray-100 text-center'
-                                },
+                                { data: 'late_hours', name: 'late_hours', className: 'text-center' },
+                                { data: 'late_minutes', name: 'late_minutes', className: 'text-center' },
                                 {
                                     data: null,
                                     orderable: false,
                                     searchable: false,
-                                    className: 'px-6 py-4 text-center',
+                                    className: 'noVis all text-center',
                                     render: function(data, type, row) {
-                                        console.log(row);
-                                        let buttonGroup = '';
-
                                         if (row.status === 'Pending') {
-                                            buttonGroup = `
-                                                <div class="flex items-center justify-center space-x-3">
-                                                    <!-- Approve -->
-                                                    <button onclick="approvedOvertimeFunction(${row.id})"
-                                                        class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-2 rounded-full shadow-md hover:shadow-lg transition">
+                                            return `
+                                                <div class="flex items-center justify-center gap-1.5">
+                                                    <button type="button" title="Approve" onclick="approvedOvertimeFunction(${row.id})" class="row-btn approve">
                                                         <i class="fas fa-check"></i>
                                                     </button>
-                                                    <!-- Edit -->
-                                                    <button x-data @click.prevent="$dispatch('open-modal', 'edit-overtime')"
-                                                        onclick="editOvertimeFunction(${row.id})"
-                                                        class="bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-full shadow-md hover:shadow-lg transition">
-                                                        <i class="fas fa-edit"></i>
+                                                    <button type="button" title="Edit time" x-data @click.prevent="$dispatch('open-modal', 'edit-overtime')"
+                                                        onclick="editOvertimeFunction(${row.id})" class="row-btn edit">
+                                                        <i class="fas fa-pen"></i>
                                                     </button>
-
-                                                    <!-- Cancel -->
-                                                    <button onclick="cancelOvertimeFunctio(${row.id})"
-                                                        class="bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-full shadow-md hover:shadow-lg transition">
+                                                    <button type="button" title="Cancel" onclick="cancelOvertimeFunctio(${row.id})" class="row-btn cancel">
                                                         <i class="fas fa-times"></i>
                                                     </button>
                                                 </div>`;
-                                        } else if (row.status === 'Approved') {
-                                            buttonGroup = `
-                                            <div class="flex items-center justify-center space-x-2">
-                                                <button onclick="cancelOvertimeFunctio(${row.id})"
-                                                    class="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-full shadow-md hover:shadow-lg transition">
-                                                    <i class="fas fa-times"></i>
-                                                </button>
-                                            </div>`;
-                                        } else if (row.status === 'Cancelled') {
-                                            buttonGroup = `
-                                                <div class="flex items-center justify-center space-x-2">
-                                                    <button onclick="handleRedo(${row.id})"
-                                                        class="bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-2 rounded-full shadow-md hover:shadow-lg transition">
+                                        }
+                                        if (row.status === 'Approved') {
+                                            return `
+                                                <div class="flex items-center justify-center">
+                                                    <button type="button" title="Cancel" onclick="cancelOvertimeFunctio(${row.id})" class="row-btn cancel">
+                                                        <i class="fas fa-times"></i>
+                                                    </button>
+                                                </div>`;
+                                        }
+                                        if (row.status === 'Cancelled') {
+                                            return `
+                                                <div class="flex items-center justify-center">
+                                                    <button type="button" title="Restore" onclick="handleRedo(${row.id})" class="row-btn restore">
                                                         <i class="fas fa-undo"></i>
                                                     </button>
                                                 </div>`;
                                         }
-
-                                        return buttonGroup;
+                                        return '';
                                     }
-
                                 }
                             ],
                             language: {
                                 emptyTable: "No records available",
                                 info: "Showing _START_ to _END_ of _TOTAL_ entries",
+                                lengthMenu: "Rows per page _MENU_",
                                 paginate: {
                                     first: "First",
                                     last: "Last",
                                     next: "Next",
                                     previous: "Previous"
                                 }
-                            },
-                            pageLength: 30
+                            }
                         });
+                        table.buttons().container().appendTo('#ot-toolbar-buttons');
                     }, 150);
                 },
                 error: function(xhr, status, error) {

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\BulkApprovesRecords;
 use App\Models\AttendanceRecord;
 use App\Models\EmployeeManagement;
 use App\Models\CertificateOfAttendance;
@@ -10,11 +11,15 @@ use Illuminate\Http\Request;
 use Yajra\DataTables\Facades\DataTables;
 use Carbon\Carbon;
 use App\Models\BiometricHistoryList;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 
 class CertificateOfAttendanceController extends Controller
 {
+    use BulkApprovesRecords;
+
     protected $biometricHistoryList;
 
     public function __construct(BiometricHistoryList $biometricHistoryList)
@@ -49,67 +54,8 @@ class CertificateOfAttendanceController extends Controller
         try {
             $coa = CertificateOfAttendance::findOrFail($id);
 
-            // Update COA approval status
-            $coa->approval_status = 'Approved';
-            $coa->save();
-
-            // ✅ Create AttendanceRecord now
-            $attendanceRecord = AttendanceRecord::create([
-                'employee_management_id' => $coa->employee_management_id,
-                'biometric_imports_id'   => $biometricImportId,
-                'record_date'            => $coa->date,
-                'earliest_time'          => $coa->earliest_time,
-                'latest_time'            => $coa->latest_time,
-                'attendance_area'        => 'COA',
-                'weekday'                => $coa->weekday,
-                'late'                   => false,
-                'late_hours'             => 0,
-                'late_minutes'           => 0,
-                'leaves'                 => false,
-            ]);
-
-            // ✅ Update the COA with the generated AttendanceRecord ID
-            $coa->attendance_records_id = $attendanceRecord->id;
-            $coa->save();
-
-            // Compute overtime via ComputationService (replaces attendance_manager.py exec)
-            $emp = DB::table('employee_management')
-                ->where('id', $coa->employee_management_id)
-                ->first();
-
-            $computation    = app(ComputationService::class);
-            $nonWorkingDays = DB::table('custom_dates')
-                ->pluck('record_date')
-                ->map(fn($d) => substr($d, 0, 10))
-                ->toArray();
-            $employeeData = DB::table('employee_management')->get()->toArray();
-
-            $rowData = [
-                'employee_name'          => $emp->employee_name ?? '',
-                'employee_management_id' => $coa->employee_management_id,
-                'record_date'            => substr($coa->date, 0, 10),
-                'earliest_time'          => $coa->earliest_time,
-                'latest_time'            => $coa->latest_time,
-                'department'             => $emp->department ?? '',
-                'leaves'                 => false,
-            ];
-
-            [$ordOt, $ordNd, $ordNdOt] = $computation->autocalculateOrd(
-                $rowData, $nonWorkingDays, $employeeData, null, null, $biometricImportId
-            );
-
-            $rdResult = $computation->autocalculateRdAndOvertime($rowData, collect($employeeData));
-
-            $computation->logOvertimeDb(
-                $rowData,
-                $ordOt, $rdResult['rd_ot'], $ordNd, $ordNdOt,
-                $rdResult['rd'], $rdResult['rd_nd'], $rdResult['rd_nd_ot'],
-                0, false, 0, 0, null,
-                'ord', $emp->schedule ?? null,
-                'Pending', $biometricImportId,
-                $attendanceRecord->id,
-                null, 'ord'
-            );
+            [$nonWorkingDays, $employeeData] = $this->computationInputs();
+            $this->approveCertificate($coa, app(ComputationService::class), $nonWorkingDays, $employeeData, $biometricImportId);
 
             return response()->json([
                 'success' => true,
@@ -126,6 +72,131 @@ class CertificateOfAttendanceController extends Controller
         }
     }
 
+    /**
+     * Non-working days and the employee list that ComputationService needs, loaded once per request.
+     */
+    protected function computationInputs(): array
+    {
+        $nonWorkingDays = DB::table('custom_dates')
+            ->pluck('record_date')
+            ->map(fn($d) => substr($d, 0, 10))
+            ->toArray();
+        $employeeData = DB::table('employee_management')->get()->toArray();
+
+        return [$nonWorkingDays, $employeeData];
+    }
+
+    /**
+     * Mark a certificate Approved, create its AttendanceRecord and seed the overtime for that day.
+     */
+    protected function approveCertificate(
+        CertificateOfAttendance $coa,
+        ComputationService $computation,
+        array $nonWorkingDays,
+        array $employeeData,
+        $biometricImportId
+    ): void {
+        // Update COA approval status
+        $coa->approval_status = 'Approved';
+        $coa->save();
+
+        // ✅ Create AttendanceRecord now
+        $attendanceRecord = AttendanceRecord::create([
+            'employee_management_id' => $coa->employee_management_id,
+            'biometric_imports_id'   => $biometricImportId,
+            'record_date'            => $coa->date,
+            'earliest_time'          => $coa->earliest_time,
+            'latest_time'            => $coa->latest_time,
+            'attendance_area'        => 'COA',
+            'weekday'                => $coa->weekday,
+            'late'                   => false,
+            'late_hours'             => 0,
+            'late_minutes'           => 0,
+            'leaves'                 => false,
+        ]);
+
+        // ✅ Update the COA with the generated AttendanceRecord ID
+        $coa->attendance_records_id = $attendanceRecord->id;
+        $coa->save();
+
+        // Compute overtime via ComputationService (replaces attendance_manager.py exec)
+        $emp = DB::table('employee_management')
+            ->where('id', $coa->employee_management_id)
+            ->first();
+
+        $rowData = [
+            'employee_name'          => $emp->employee_name ?? '',
+            'employee_management_id' => $coa->employee_management_id,
+            'record_date'            => substr($coa->date, 0, 10),
+            'earliest_time'          => $coa->earliest_time,
+            'latest_time'            => $coa->latest_time,
+            'department'             => $emp->department ?? '',
+            'leaves'                 => false,
+        ];
+
+        [$ordOt, $ordNd, $ordNdOt] = $computation->autocalculateOrd(
+            $rowData, $nonWorkingDays, $employeeData, null, null, $biometricImportId
+        );
+
+        $rdResult = $computation->autocalculateRdAndOvertime($rowData, collect($employeeData));
+
+        $computation->logOvertimeDb(
+            $rowData,
+            $ordOt, $rdResult['rd_ot'], $ordNd, $ordNdOt,
+            $rdResult['rd'], $rdResult['rd_nd'], $rdResult['rd_nd_ot'],
+            0, false, 0, 0, null,
+            'ord', $emp->schedule ?? null,
+            'Pending', $biometricImportId,
+            $attendanceRecord->id,
+            null, 'ord'
+        );
+    }
+
+    protected function bulkTable(): string { return 'certificate_attendance'; }
+    protected function bulkModel(): string { return CertificateOfAttendance::class; }
+    protected function bulkStatusColumn(): string { return 'approval_status'; }
+    protected function bulkPendingValue(): string { return 'Pending'; }
+    protected function bulkDateColumn(): string { return 'date'; }
+
+    protected function bulkRecords(int $count): string
+    {
+        return "{$count} " . ($count === 1 ? 'certificate' : 'certificates');
+    }
+
+    /**
+     * Each certificate creates an AttendanceRecord and its overtime, so approve them one by one,
+     * each in its own transaction: a failure skips that certificate without undoing the others.
+     */
+    protected function approvePendingRecords(Collection $ids): int
+    {
+        if ($ids->isEmpty()) {
+            return 0;
+        }
+
+        $biometricImportId = $this->biometricHistoryList->getLoadedRecordId();
+        $computation = app(ComputationService::class);
+        [$nonWorkingDays, $employeeData] = $this->computationInputs();
+
+        $approved = 0;
+        foreach ($ids as $id) {
+            try {
+                $approved += DB::transaction(function () use ($id, $computation, $nonWorkingDays, $employeeData, $biometricImportId) {
+                    // Re-check under a row lock so a double submit can't create two AttendanceRecords
+                    $coa = CertificateOfAttendance::lockForUpdate()->find($id);
+                    if (!$coa || $coa->approval_status !== 'Pending') {
+                        return 0;
+                    }
+                    $this->approveCertificate($coa, $computation, $nonWorkingDays, $employeeData, $biometricImportId);
+
+                    return 1;
+                });
+            } catch (\Throwable $e) {
+                Log::error("Bulk approve of certificate of attendance {$id} failed: {$e->getMessage()}");
+            }
+        }
+
+        return $approved;
+    }
 
     public function cancel($id)
     {

@@ -327,6 +327,16 @@ class ComputationService
         $serial_number  = $employee->serial_number ?? null;
         $attendance_area = $row['Attendance Area'] ?? null;
 
+        // Late is always derived from the punches and schedule (callers pass placeholders). No late
+        // on rest days, holidays or leave days.
+        $isNonWorking = DB::table('custom_dates')->whereRaw('DATE(record_date) = ?', [substr((string) $recordDate, 0, 10)])->exists();
+        $lateMinutes = ($isNonWorking || !empty($row['leaves']))
+            ? 0
+            : $this->lateAndUndertime($schedule ?? ($employee->schedule ?? null), $earliest, $latest, $department)['late_minutes'];
+        $late         = $lateMinutes > 0;
+        $late_hours   = intdiv($lateMinutes, 60);
+        $late_minutes = $lateMinutes % 60;
+
         $newEntry = [
             'unique_id'                      => $id_str,
             'first_name'                     => $first,
@@ -679,6 +689,66 @@ class ComputationService
             $attendanceRecordId,
             $record->schedule_shift ?? null, 'ord'
         );
+    }
+
+    /** Arriving up to this many seconds after the schedule start is not late. */
+    public const GRACE_SECONDS = 15 * 60;
+
+    /**
+     * Late and undertime for one day, in whole minutes. Punch times are read to the minute only
+     * (seconds are dropped: 15:57:09 counts as 15:57).
+     *
+     * - Late: minutes after the schedule start, counted in full (20 minutes late = 20) but only
+     *   when beyond the 15-minute grace period; within the grace period it is 0.
+     * - Undertime: every minute the last punch falls before the schedule end; no tolerance.
+     *
+     * Schedules are "start-end" hours (e.g. 7-16, 19-7 across midnight). SG Vesta picks 7-19 or
+     * 19-7 from the first punch, as in autocalculateOrd(). Returns zeros when there is no usable
+     * schedule or punch pair.
+     */
+    public function lateAndUndertime(?string $schedule, ?string $earliest, ?string $latest, ?string $department = null): array
+    {
+        $none = ['late_minutes' => 0, 'undertime_minutes' => 0];
+        if (!$earliest || !$latest || $earliest === $latest) {
+            return $none;
+        }
+
+        $earSec = $this->minuteSeconds($earliest);
+        $latSec = $this->minuteSeconds($latest);
+
+        if (strtolower(trim((string) $department)) === 'sg vesta') {
+            $schedule = abs($earSec - 7 * 3600) <= abs($earSec - 19 * 3600) ? '7-19' : '19-7';
+        }
+        if (!$schedule || !preg_match('/^\s*(\d{1,2})\s*-\s*(\d{1,2})/', $schedule, $m)) {
+            return $none;
+        }
+
+        $startSec = ((int) $m[1] % 24) * 3600;
+        $shiftSec = ((((int) $m[2] - (int) $m[1]) % 24 + 24) % 24 ?: 24) * 3600;
+
+        // Position of the punches relative to the schedule start (early arrival is negative)
+        $arrival = ($earSec - $startSec + 86400) % 86400;
+        if ($arrival > 43200) {
+            $arrival -= 86400;
+        }
+        $span = $latSec >= $earSec ? $latSec - $earSec : $latSec + 86400 - $earSec;
+        $departure = $arrival + $span;
+
+        $lateSec = $arrival > self::GRACE_SECONDS ? $arrival : 0;
+        $undertimeSec = max($shiftSec - $departure, 0);
+
+        return [
+            'late_minutes' => intdiv($lateSec, 60),
+            'undertime_minutes' => intdiv($undertimeSec, 60),
+        ];
+    }
+
+    /** Seconds from midnight to the punch's minute (the seconds part is ignored). */
+    public function minuteSeconds(?string $timeStr): int
+    {
+        $seconds = $this->timeToSeconds($timeStr);
+
+        return $seconds - $seconds % 60;
     }
 
     /**

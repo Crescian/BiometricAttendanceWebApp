@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\AuditLogger;
 use App\Models\Csvimport;
 use App\Models\BiometricHistoryList;
 use App\Services\AttendanceProcessor;
@@ -108,6 +109,7 @@ class CsvimportController extends Controller
         // so attendance_records/overtimes seeded below always match the id that
         // biometric-history-list.store() later fills in and every other controller
         // reads via BiometricHistoryList::getLoadedRecordId().
+        $previouslyLoaded = BiometricHistoryList::where('status', 'load')->pluck('id')->all();
         BiometricHistoryList::where('status', 'load')->update(['status' => 'unload']);
         $biometricImport = BiometricHistoryList::create([
             'title'       => $request->input('title', $fileName),
@@ -127,14 +129,43 @@ class CsvimportController extends Controller
             return response()->json(['error' => 'Uploaded file not found on disk'], 500);
         }
 
+        $fileEvidence = [
+            'file' => $uploadedFile->getClientOriginalName(),
+            'bytes' => $uploadedFile->getSize(),
+            'sha256' => hash_file('sha256', $csvPath),
+            'biometric_import_id' => $biometricImportId,
+            'previously_loaded_import_ids' => $previouslyLoaded,
+        ];
+
         try {
             $result = $processor->processFile($csvPath, $outputDir, $biometricImportId);
 
             if (!empty($result['error'])) {
+                AuditLogger::record('import.biometric_file_processed', [
+                    'category' => 'import', 'action' => 'import', 'outcome' => 'failure',
+                    'target' => ['BiometricHistoryList', $biometricImportId],
+                    'description' => 'Biometric file import failed: '.$result['error'],
+                    'metadata' => $fileEvidence + ['error' => $result['error']],
+                ]);
+
                 return response()->json(['error' => $result['error']], 500);
             }
 
             $batch = BiometricHistoryList::find($biometricImportId);
+
+            AuditLogger::record('import.biometric_file_processed', [
+                'category' => 'import', 'action' => 'import',
+                'target' => ['BiometricHistoryList', $biometricImportId],
+                'description' => 'Imported biometric file '.$fileEvidence['file']
+                    .' as import #'.$biometricImportId.' ('.($batch->period_start ?? '?').' to '.($batch->period_end ?? '?').')',
+                'metadata' => $fileEvidence + [
+                    'period_start' => $batch->period_start ?? null,
+                    'period_end' => $batch->period_end ?? null,
+                    'attendance_records' => \DB::table('attendance_records')->where('biometric_imports_id', $biometricImportId)->count(),
+                    'overtimes' => \DB::table('overtimes')->where('biometric_imports_id', $biometricImportId)->count(),
+                    'stats' => $result['stats'] ?? null,
+                ],
+            ]);
 
             return response()->json([
                 'message' => 'File processed successfully',
@@ -146,6 +177,12 @@ class CsvimportController extends Controller
             ], 200);
 
         } catch (\Throwable $e) {
+            AuditLogger::record('import.biometric_file_processed', [
+                'category' => 'import', 'action' => 'import', 'outcome' => 'failure',
+                'target' => ['BiometricHistoryList', $biometricImportId],
+                'description' => 'Biometric file import failed: '.$e->getMessage(),
+                'metadata' => $fileEvidence + ['error' => $e->getMessage()],
+            ]);
             Log::error('Attendance processing error: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
             return response()->json(['error' => 'Processing failed: ' . $e->getMessage()], 500);
         }
@@ -169,10 +206,37 @@ class CsvimportController extends Controller
             $result = $processor->generatePayrollReport($start, $end);
 
             if (!empty($result['error'])) {
+                AuditLogger::record('report.payroll_generated', [
+                    'category' => 'report', 'action' => 'generate', 'outcome' => 'failure',
+                    'description' => "Payroll report for {$start} to {$end} not generated: ".$result['error'],
+                    'metadata' => ['period_start' => $start, 'period_end' => $end, 'error' => $result['error']],
+                ]);
+
                 return response()->json(['error' => $result['error']], 422);
             }
 
             $stats = $result['stats'] ?? [];
+
+            // Evidence of exactly what was produced
+            $outputs = [];
+            foreach (['payroll file.csv', 'payroll file.xlsx', 'reportdtr.xlsx', 'security.xlsx'] as $name) {
+                $path = public_path('python/'.$name);
+                if (is_file($path)) {
+                    $outputs[$name] = ['bytes' => filesize($path), 'sha256' => hash_file('sha256', $path)];
+                }
+            }
+            AuditLogger::record('report.payroll_generated', [
+                'category' => 'report', 'action' => 'generate',
+                'description' => "Generated payroll report for {$start} to {$end}",
+                'metadata' => [
+                    'period_start' => $start,
+                    'period_end' => $end,
+                    'outputs' => $outputs,
+                    'imports' => $stats['imports'] ?? [],
+                    'missing_dates' => $stats['missing_dates'] ?? [],
+                    'security_guards' => $stats['security_guards'] ?? 0,
+                ],
+            ]);
 
             return response()->json([
                 'message' => 'Report generated successfully',
@@ -184,6 +248,11 @@ class CsvimportController extends Controller
             ], 200);
 
         } catch (\Throwable $e) {
+            AuditLogger::record('report.payroll_generated', [
+                'category' => 'report', 'action' => 'generate', 'outcome' => 'failure',
+                'description' => "Payroll report for {$start} to {$end} failed: ".$e->getMessage(),
+                'metadata' => ['period_start' => $start, 'period_end' => $end, 'error' => $e->getMessage()],
+            ]);
             Log::error('Report generation error: ' . $e->getMessage());
             return response()->json(['error' => 'Report generation failed: ' . $e->getMessage()], 500);
         }
@@ -197,6 +266,15 @@ class CsvimportController extends Controller
 
         try {
             $result = $processor->finalizeCertificates($certificatesPath, $overtimeLogsPath, $outputDir);
+
+            AuditLogger::record('certificate.finalized', [
+                'category' => 'approval', 'action' => 'finalize',
+                'outcome' => empty($result['error']) ? 'success' : 'failure',
+                'description' => empty($result['error'])
+                    ? 'Finalized attendance certificates'
+                    : 'Finalizing attendance certificates failed: '.$result['error'],
+                'metadata' => ['stats' => $result['stats'] ?? null, 'error' => $result['error'] ?? null],
+            ]);
 
             if (!empty($result['error'])) {
                 return response()->json(['error' => $result['error']], 500);
@@ -538,7 +616,20 @@ class CsvimportController extends Controller
             ];
 
             Csvimport::create($mappedData);
+            $loaded = ($loaded ?? 0) + 1;
         }
+
+        AuditLogger::record('payroll.loaded', [
+            'category' => 'report', 'action' => 'import',
+            'description' => 'Loaded '.($loaded ?? 0)." payroll rows for {$periodStart} to {$periodEnd}",
+            'metadata' => [
+                'rows' => $loaded ?? 0,
+                'period_start' => $periodStart,
+                'period_end' => $periodEnd,
+                'biometric_imports_id' => $v['biometric_imports_id'] ?? null,
+                'source_sha256' => is_file($path) ? hash_file('sha256', $path) : null,
+            ],
+        ]);
 
         return response()->json([
             'message' => 'CSV imported successfully.',

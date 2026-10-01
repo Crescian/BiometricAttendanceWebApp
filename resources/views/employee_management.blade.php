@@ -1,55 +1,55 @@
 <x-app-layout>
 
-    <!-- Table Section inside Card -->
-    <div class="p-6 mt-5">
-        <div class="bg-white shadow-lg rounded-lg border border-gray-200">
-            <!-- Card Header -->
-            <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-                <h2 class="font-bold text-3xl">
-                    <i class="fa-regular fa-clone" style="color: #8DE11A; font-size: 40px"></i>
-                    {{ __('Employee Management') }}
-                </h2>
-                <button x-data @click.prevent="$dispatch('open-modal', 'add-employee')"
-                    class="flex items-center px-4 py-2 bg-white text-green-600 font-semibold rounded-lg shadow-sm border border-green-600">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24"
-                        stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
-                    </svg>
-                    Add
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 ml-2" fill="none" viewBox="0 0 24 24"
-                        stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-                    </svg>
-                </button>
-            </div>
+    <x-approval-table-assets />
 
-            <!-- Table Section -->
-            <div class="p-6 text-gray-900">
-                <div id="overtime-table-container" class="border rounded-lg shadow-sm">
-                    <div id="pagination" class="flex items-center justify-center my-4 space-x-4"></div>
-                    <table id="employeeTable" class="min-w-full table-auto">
-                        <thead class="text-white text-sm sticky top-0" style="background-color: #00291B;">
-                            <tr>
-                                <th class="px-4 py-2 text-white font-bold">Unique ID</th>
-                                <th class="px-4 py-2 text-white">Employee Name</th>
-                                <th class="px-4 py-2 text-white">Department</th>
-                                <th class="px-4 py-2 text-white">Supervisor</th>
-                                <th class="px-4 py-2 text-white">Schedule</th>
-                                <th class="px-4 py-2 text-white">Basic Salary</th>
-                                <th class="px-4 py-2 text-white">Status</th>
-                                <th class="px-4 py-2 text-white text-center">Action</th>
-                            </tr>
-                        </thead>
-                        <tbody id="overtime-body" class="text-sm text-gray-800 divide-y divide-gray-200">
-                            <!-- Data will be injected here -->
-                        </tbody>
-                    </table>
+    <div class="px-2 lg:px-4">
+        <!-- Page header + toolbar -->
+        <div class="flex flex-wrap items-center justify-between gap-3 px-4 pt-4 pb-3">
+            <h1 class="text-xl font-semibold text-gray-900">{{ __('Employee Management') }}</h1>
+            <div class="flex flex-wrap items-center gap-2">
+                <button type="button" x-data @click.prevent="$dispatch('open-modal', 'add-employee')"
+                    class="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-white bg-green-600 rounded-md hover:bg-green-700 shadow-sm">
+                    <i class="fa-solid fa-plus"></i>
+                    Add
+                </button>
+                <div class="relative">
+                    <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i>
+                    <input id="emp-search" type="search" placeholder="Search"
+                        class="w-48 pl-8 pr-3 py-1.5 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500">
+                </div>
+                <div id="emp-toolbar-buttons" class="flex items-center gap-2"></div>
+            </div>
+        </div>
+
+        <!-- Table card -->
+        <div class="px-4 pb-4">
+            <div class="bg-white rounded-lg border border-gray-200 shadow-sm">
+                <div class="p-2 text-gray-900">
+                    <div class="border border-gray-200 rounded-md overflow-hidden">
+                        <div class="overflow-x-auto">
+                            <table id="employeeTable" class="modern-table w-full text-sm">
+                                <thead>
+                                    <tr>
+                                        <th class="noVis" style="width: 2rem;"></th>
+                                        <th>ID</th>
+                                        <th>Employee</th>
+                                        <th>Department</th>
+                                        <th>Supervisor</th>
+                                        <th>Schedule</th>
+                                        <th>Basic Salary</th>
+                                        <th>Status</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Edit Employee Modal -->
     <x-modal name="edit-employee" focusable>
         <div class="p-8 bg-white rounded-xl">
             <div class="mb-6">
@@ -271,6 +271,7 @@
         const userId = "{{ Auth::user()->id ?? '' }}";
         const userRole = "{{ Auth::user()->role ?? '' }}";
         loadEmployeeTable();
+        bindTableSearch('#emp-search', '#employeeTable');
         loadDepartment();
         let globalID;
 
@@ -382,205 +383,125 @@
         }
 
         function loadEmployeeTable() {
-            // Destroy existing DataTable if already initialized
             if ($.fn.DataTable.isDataTable('#employeeTable')) {
                 $('#employeeTable').DataTable().clear().destroy();
             }
+            $('#emp-toolbar-buttons').empty();
 
             $.ajax({
                 url: "{{ route('department.getUserDepartment') }}",
                 type: 'GET',
                 dataType: 'json',
                 success: function(data) {
-                    console.log("Department Data:", userRole); // 👈 add this line
-                    let departmentName;
-                    if (!data.success) {
-                        departmentName = 'N/A';
-                    } else {
-                        departmentName = data.data.department_name;
-                    }
+                    let departmentName = !data.success ? 'N/A' : data.data.department_name;
 
                     setTimeout(() => {
-                        let table = $('#employeeTable').DataTable({
-                            // processing: true,
+                        const table = $('#employeeTable').DataTable({
                             serverSide: true,
                             autoWidth: false,
-                            responsive: true,
-                            lengthChange: true, // only keep this
-                            lengthMenu: [10, 20, 50], // page length options
-                            pageLength: 50, // default rows per page
-                            dom: '<"flex justify-between items-center mb-4"Bf>rt<"flex justify-between items-center mt-4"lip>',
+                            responsive: {
+                                details: {
+                                    type: 'column',
+                                    target: 0
+                                }
+                            },
+                            lengthChange: true,
+                            lengthMenu: [10, 20, 50],
+                            pageLength: 50,
+                            dom: 'rt<"flex flex-wrap justify-between items-center gap-2 px-3 py-2 border-t border-gray-200 text-xs text-gray-600"lip>',
+                            search: {
+                                search: $('#emp-search').val() || ''
+                            },
+                            order: [
+                                [1, 'asc']
+                            ],
                             ajax: {
                                 url: "{{ route('employees.fetch') }}",
                                 data: function(d) {
-                                    d.userRole = userRole; // admin or user
-                                    d.department = departmentName; // only applies for user
-                                    console.log("Sending:", d); // 👈 add this line
+                                    d.userRole = userRole;
+                                    d.department = departmentName; // the server only applies it to non-admins
                                 }
                             },
-                            buttons: [{
-                                    extend: 'collection',
-                                    text: '<i class="fa fa-download mr-1 text-green-600"></i> Export',
-                                    className: 'flex items-center px-4 py-2 bg-white font-semibold rounded-lg shadow-sm border border-green-600 mt-3',
-                                    attr: {
-                                        style: 'border-color:#16a34a !important;'
-                                    },
-                                    buttons: [{
-                                            extend: 'copyHtml5',
-                                            text: '<i class="fa fa-copy mr-1 text-gray-700"></i> Copy',
-                                            className: 'bg-white text-black px-3 py-1 rounded hover:bg-gray-100 border border-gray-300'
-                                        },
-                                        {
-                                            extend: 'excelHtml5',
-                                            text: '<i class="fa fa-file-excel mr-1 text-green-600"></i> Excel',
-                                            className: 'bg-white text-black px-3 py-1 rounded hover:bg-green-50 border border-gray-300'
-                                        },
-                                        {
-                                            extend: 'csvHtml5',
-                                            text: '<i class="fa fa-file-csv mr-1 text-blue-600"></i> CSV',
-                                            className: 'bg-white text-black px-3 py-1 rounded hover:bg-blue-50 border border-gray-300'
-                                        },
-                                        {
-                                            extend: 'pdfHtml5',
-                                            text: '<i class="fa fa-file-pdf mr-1 text-red-600"></i> PDF',
-                                            className: 'bg-white text-black px-3 py-1 rounded hover:bg-red-50 border border-gray-300'
-                                        },
-                                        {
-                                            extend: 'print',
-                                            text: '<i class="fa fa-print mr-1 text-gray-700"></i> Print',
-                                            className: 'bg-white text-black px-3 py-1 rounded hover:bg-gray-100 border border-gray-300'
-                                        }
-                                    ]
-                                },
+                            buttons: exportAndColumnButtons(),
+                            columns: [
+                                expandControlColumn,
                                 {
-                                    extend: 'colvis',
-                                    text: '<i class="fa fa-columns mr-1 text-green-600"></i> Columns',
-                                    className: 'flex items-center px-4 py-2 bg-white font-semibold rounded-lg shadow-sm border border-green-600 mt-3',
-                                    attr: {
-                                        style: 'border-color:#16a34a !important;'
-                                    },
-                                    columns: ':not(:last-child)',
-                                    columnText: function(dt, idx, title) {
-                                        const defaultTitles = [
-                                            'Unique ID',
-                                            'Employee Name',
-                                            'Department',
-                                            'Report To',
-                                            'Schedule',
-                                            'Basic Salary',
-                                            'Action'
-                                        ];
-                                        return defaultTitles[idx] ||
-                                            `Column ${idx + 1}`;
-                                    }
-                                }
-                            ],
-                            columns: [{
                                     data: 'unique_id',
                                     name: 'unique_id',
-                                    className: 'px-6 py-4 text-sm text-gray-900 font-bold border-r border-gray-100'
+                                    className: 'font-semibold text-gray-900'
                                 },
                                 {
                                     data: 'employee_name',
                                     name: 'employee_name',
-                                    className: 'px-6 py-4 text-sm text-gray-900 border-r border-gray-100'
+                                    className: 'all',
+                                    render: function(data, type) {
+                                        return type === 'display' ? employeeNameCell(data) : data;
+                                    }
                                 },
                                 {
                                     data: 'department',
                                     name: 'department',
-                                    className: 'px-6 py-4 text-sm text-gray-700 border-r border-gray-100'
+                                    render: function(data, type) {
+                                        return type === 'display' ? colorBadgeCell(data) : data;
+                                    }
                                 },
                                 {
                                     data: 'report_to',
-                                    name: 'report_to',
-                                    className: 'px-6 py-4 text-sm text-gray-700 border-r border-gray-100'
+                                    name: 'report_to'
                                 },
                                 {
                                     data: 'schedule',
-                                    name: 'schedule',
-                                    className: 'px-6 py-4 text-sm text-gray-700 border-r border-gray-100'
+                                    name: 'schedule'
                                 },
                                 {
                                     data: 'basic_salary',
                                     name: 'basic_salary',
-                                    className: 'px-6 py-4 text-sm text-gray-700 border-r border-gray-100'
-                                }, {
+                                    className: 'text-right'
+                                },
+                                {
                                     data: 'status',
                                     name: 'status',
-                                    className: 'px-6 py-4 text-sm text-gray-700 border-r border-gray-100',
-                                    render: function(data) {
-                                        if (data === 'Active') {
-                                            return '<span class="px-3 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-700">ACTIVE</span>';
-                                        } else {
-                                            return '<span class="px-3 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-700">NOT ACTIVE</span>';
-                                        }
+                                    render: function(data, type) {
+                                        if (type !== 'display') return data;
+                                        return data === 'Active' ?
+                                            '<span class="px-1.5 py-0.5 text-[11px] font-semibold rounded-full bg-green-100 text-green-800">Active</span>' :
+                                            '<span class="px-1.5 py-0.5 text-[11px] font-semibold rounded-full bg-red-100 text-red-800">Not Active</span>';
                                     }
                                 },
-
                                 {
                                     data: null,
                                     orderable: false,
                                     searchable: false,
-                                    className: 'px-6 py-4 text-center',
+                                    className: 'noVis all text-center',
                                     render: function(data, type, row) {
                                         return `
-                            <div class="flex items-center justify-center space-x-2">
-                                <button x-data @click.prevent="$dispatch('open-modal', 'edit-employee')"
-                                    class="inline-flex items-center px-3 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transform transition-all duration-200 hover:scale-105"
-                                    onclick="editFunction(${row.id});">
-                                    <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                            d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414
-                                            a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
-                                    </svg>
-                                    Edit
-                                </button>
-
-                                <button
-                                    class="inline-flex items-center px-3 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 transform transition-all duration-200 hover:scale-105"
-                                    onclick="deleteEmployee(${row.id});">
-                                    <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862
-                                            a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6
-                                            m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16">
-                                        </path>
-                                    </svg>
-                                    Delete
-                                </button>
-                            </div>`;
+                                            <div class="flex items-center justify-center gap-1.5">
+                                                <button type="button" title="Edit" class="row-btn edit"
+                                                    x-data @click.prevent="$dispatch('open-modal', 'edit-employee')"
+                                                    onclick="editFunction(${row.id});">
+                                                    <i class="fas fa-pen"></i>
+                                                </button>
+                                                <button type="button" title="Delete" class="row-btn cancel"
+                                                    onclick="deleteEmployee(${row.id});">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </div>`;
                                     }
                                 }
                             ],
                             language: {
-                                search: "_INPUT_",
-                                searchPlaceholder: "Search employees...",
+                                emptyTable: "No records available",
                                 info: "Showing _START_ to _END_ of _TOTAL_ entries",
+                                lengthMenu: "Rows per page _MENU_",
                                 paginate: {
                                     first: "First",
                                     last: "Last",
                                     next: "Next",
                                     previous: "Previous"
                                 }
-                            },
-                            initComplete: function() {
-                                this.api().columns().every(function() {
-                                    var column = this;
-                                    $('input', column.header()).on(
-                                        'keyup change clear',
-                                        function() {
-                                            if (column.search() !== this
-                                                .value) {
-                                                column.search(this.value)
-                                                    .draw();
-                                            }
-                                        });
-                                });
                             }
                         });
-
-                        // Adjust columns once loaded
-                        table.columns.adjust().draw();
+                        table.buttons().container().appendTo('#emp-toolbar-buttons');
                     }, 150);
                 },
                 error: function(xhr, status, error) {
@@ -777,92 +698,4 @@
         });
     </script>
 
-    <style>
-        /* Custom DataTables Styling */
-        #employeeTable_wrapper .dataTables_filter input {
-            padding: 0.75rem 1rem;
-            border: 1px solid #d1d5db;
-            border-radius: 0.5rem;
-            font-size: 0.875rem;
-            width: 100%;
-            max-width: 250px;
-            background: white;
-            transition: all 0.2s;
-        }
-
-        #employeeTable_wrapper .dataTables_filter input:focus {
-            outline: none;
-            border-color: #3b82f6;
-            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-        }
-
-        #employeeTable_wrapper .dataTables_length select {
-            padding: 0.75rem;
-            border-radius: 0.5rem;
-            border: 1px solid #d1d5db;
-            font-size: 0.875rem;
-            background: white;
-            transition: all 0.2s;
-        }
-
-        #employeeTable_wrapper .dataTables_length select:focus {
-            outline: none;
-            border-color: #3b82f6;
-            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-        }
-
-        /* Table row hover effects */
-        #employeeTable tbody tr:hover {
-            background-color: #f8fafc;
-            transform: translateY(-1px);
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-            transition: all 0.2s ease;
-        }
-
-        /* DataTables pagination styling */
-        .dataTables_paginate .paginate_button {
-            padding: 0.5rem 1rem;
-            margin: 0 0.25rem;
-            border-radius: 0.375rem;
-            border: 1px solid #d1d5db;
-            background: white;
-            color: #374151;
-            transition: all 0.2s;
-        }
-
-        .dataTables_paginate .paginate_button:hover {
-            background: #f3f4f6;
-            border-color: #9ca3af;
-        }
-
-        .dataTables_paginate .paginate_button.current {
-            background: #3b82f6;
-            color: white;
-            border-color: #3b82f6;
-        }
-
-        .dataTables_paginate .paginate_button.current:hover {
-            background: #2563eb;
-            border-color: #2563eb;
-        }
-
-        /* Info and length menu styling */
-        .dataTables_info,
-        .dataTables_length {
-            color: #6b7280;
-            font-size: 0.875rem;
-        }
-
-        /* Responsive table improvements */
-        @media (max-width: 768px) {
-            #employeeTable_wrapper .dataTables_filter input {
-                max-width: 100%;
-                margin-bottom: 1rem;
-            }
-
-            .dataTables_length {
-                margin-bottom: 1rem;
-            }
-        }
-    </style>
 </x-app-layout>

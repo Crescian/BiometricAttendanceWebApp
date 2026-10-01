@@ -137,9 +137,9 @@ class PageController extends Controller
     {
         return view('organization_structure');
     }
-    public function attendanceLog()
+    public function userManagement()
     {
-        return view('attendance_log');
+        return view('user_management');
     }
     public function attendanceRecord()
     {

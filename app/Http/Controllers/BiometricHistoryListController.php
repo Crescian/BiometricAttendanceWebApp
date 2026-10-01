@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\AuditLogger;
 use App\Models\BiometricHistoryList;
 use Illuminate\Http\Request;
 
@@ -24,7 +25,16 @@ class BiometricHistoryListController extends Controller
 
         // If setting this one to 'load', unload all others first
         if ($newStatus === 'load') {
+            $unloaded = BiometricHistoryList::where('status', 'load')->where('id', '<>', $record->id)->pluck('id')->all();
             BiometricHistoryList::where('status', 'load')->update(['status' => 'unload']);
+            if ($unloaded) {
+                AuditLogger::record('biometric_import.unloaded', [
+                    'category' => 'import', 'action' => 'update', 'target' => $record,
+                    'description' => 'Unloaded import(s) #'.implode(', #', $unloaded).' to load #'.$record->id,
+                    'old' => ['status' => 'load'], 'new' => ['status' => 'unload'],
+                    'metadata' => ['unloaded_ids' => $unloaded],
+                ]);
+            }
         }
 
         // Update the selected record
@@ -105,7 +115,16 @@ class BiometricHistoryListController extends Controller
         }
 
         // 1️⃣ Unload all previously "loaded" records
+        $unloaded = BiometricHistoryList::where('status', 'load')->pluck('id')->all();
         BiometricHistoryList::where('status', 'load')->update(['status' => 'unload']);
+        if ($unloaded) {
+            AuditLogger::record('biometric_import.unloaded', [
+                'category' => 'import', 'action' => 'update',
+                'description' => 'Unloaded import(s) #'.implode(', #', $unloaded).' for a new import',
+                'old' => ['status' => 'load'], 'new' => ['status' => 'unload'],
+                'metadata' => ['unloaded_ids' => $unloaded],
+            ]);
+        }
 
         $BiometricHistoryList = BiometricHistoryList::create([
             'title' => $request->title,

@@ -63,6 +63,15 @@ return [
             'level' => env('LOG_LEVEL', 'debug'),
         ],
 
+        // Audit records that could not be written to the audit_logs table. Never pruned
+        // (days = 0); the Audit Log page warns while this file has entries.
+        'audit_fallback' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/audit-fallback.log'),
+            'level' => 'info',
+            'days' => 0,
+        ],
+
         'daily' => [
             'driver' => 'daily',
             'path' => storage_path('logs/laravel.log'),

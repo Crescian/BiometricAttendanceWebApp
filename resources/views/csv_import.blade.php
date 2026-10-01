@@ -252,14 +252,14 @@
         <div class="loaders"></div>
     </div>
 
-    <div class="px-16 py-8">
-        <div class="flex items-center justify-between mb-6">
-            <h2 class="text-3xl font-bold text-gray-800 flex items-center">
-                <i class="fa-solid fa-file-import text-green-500 mr-3"></i>
+    <div class="px-6 py-4">
+        <div class="flex items-center justify-between mb-4">
+            <h2 class="text-xl font-semibold text-gray-900 flex items-center">
+                <i class="fa-solid fa-file-import text-green-500 mr-2 text-base"></i>
                 Imported CSV Files
             </h2>
             <button x-data @click.prevent="$dispatch('open-modal', 'biometric-info')"
-                class="flex items-center px-4 py-2 bg-gradient-to-r from-green-600 to-green-700 text-white font-semibold rounded-lg shadow-sm hover:from-green-700 hover:to-green-800 transition-all duration-200">
+                class="flex items-center px-3 py-1.5 text-xs bg-gradient-to-r from-green-600 to-green-700 text-white font-semibold rounded-md shadow-sm hover:from-green-700 hover:to-green-800 transition-all duration-200">
                 <i class="fa-solid fa-file-import mr-2"></i> Import Now
             </button>
         </div>
@@ -757,31 +757,16 @@
                     period_start: $('#period-start').val(),
                     period_end: $('#period-end').val()
                 },
-                success: function(response) {
-                    $.ajax({
-                        url: "{{ route('import.csv') }}",
-                        type: 'POST',
-                        headers: {
-                            'X-CSRF-TOKEN': csrfToken
-                        },
-                        data: {
-                            biometric_imports_id: response.id,
-                        },
-                        success: () => {
-                            Swal.fire({
-                                icon: "success",
-                                title: "CSV imported successfully!",
-                                showConfirmButton: false,
-                                timer: 1500,
-                                width: "400px"
-                            }).then(() => {
-                                // Reload the page after the alert closes
-                                // location.reload();
-                            });
-                        },
-                        error: handleAjaxError
+                success: function() {
+                    // Payroll rows (csvimports) are loaded by Report Generation after it writes the
+                    // payroll file; loading here picked up a stale file or failed with "File not found."
+                    Swal.fire({
+                        icon: "success",
+                        title: "CSV imported successfully!",
+                        showConfirmButton: false,
+                        timer: 1500,
+                        width: "400px"
                     });
-                    console.log(response.id);
                 },
                 error: handleAjaxError
             });

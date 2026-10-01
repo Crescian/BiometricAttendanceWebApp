@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\BulkApprovesRecords;
 use App\Models\ScheduleAdjustment;
 use Illuminate\Http\Request;
 use Yajra\DataTables\Facades\DataTables;
@@ -10,10 +11,14 @@ use App\Models\BiometricHistoryList;
 use App\Models\AttendanceRecord;
 use App\Models\EmployeeManagement;
 use App\Services\ComputationService;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class ScheduleAdjustmentController extends Controller
 {
+    use BulkApprovesRecords;
+
     protected $biometricHistoryList;
 
     public function __construct(BiometricHistoryList $biometricHistoryList)
@@ -107,81 +112,10 @@ class ScheduleAdjustmentController extends Controller
             $biometricImportId  = $this->biometricHistoryList->getLoadedRecordId();
             $scheduleAdjustment = ScheduleAdjustment::findOrFail($id);
 
-            $scheduleAdjustment->approval_status = 'Approved';
-            $scheduleAdjustment->save();
-
-            $attendanceRecord = DB::table('attendance_records')
-                ->where('id', $scheduleAdjustment->attendance_records_id)
-                ->first();
-
-            $snapshotResult = null;
-
-            if ($attendanceRecord) {
-                $emp = DB::table('employee_management')
-                    ->where('id', $attendanceRecord->employee_management_id)
-                    ->first();
-
-                $computation    = app(ComputationService::class);
-                $nonWorkingDays = DB::table('custom_dates')
-                    ->pluck('record_date')
-                    ->map(fn($d) => substr($d, 0, 10))
-                    ->toArray();
-                $employeeData   = DB::table('employee_management')->get()->toArray();
-
-                // ── Snapshot + midnight-safe OT for any shift change ────────────
-                // Look up the existing overtime record so we can preserve its values
-                // before recalculating with the new schedule.
-                $originalOt = DB::table('overtimes')
-                    ->where('attendance_records_id', $scheduleAdjustment->attendance_records_id)
-                    ->where('biometric_imports_id', $biometricImportId)
-                    ->first();
-
-                $snapshotPath   = storage_path('app/schedule_adjustment_snapshots.json');
-                $adjustmentData = array_merge((array)$scheduleAdjustment->toArray(), [
-                    'employee_name' => $emp->employee_name ?? '',
-                    'earliest_time' => $attendanceRecord->earliest_time,
-                    'latest_time'   => $attendanceRecord->latest_time,
-                ]);
-
-                $snapshotResult = $computation->adjustShiftWithSnapshot(
-                    $adjustmentData,
-                    $originalOt,
-                    $snapshotPath
-                );
-
-                // Use the midnight-corrected times returned by adjustShiftWithSnapshot
-                // so the downstream autocalculate methods receive proper in/out values.
-                $adjustedEarliest = $snapshotResult['adjusted']['earliest_time'];
-                $adjustedLatest   = $snapshotResult['adjusted']['latest_time'];
-
-                // ── Full ND/RD breakdown using corrected times ───────────────────
-                $rowData = [
-                    'employee_name'          => $emp->employee_name ?? '',
-                    'employee_management_id' => $attendanceRecord->employee_management_id,
-                    'record_date'            => substr($attendanceRecord->record_date, 0, 10),
-                    'earliest_time'          => $adjustedEarliest,
-                    'latest_time'            => $adjustedLatest,
-                    'department'             => $emp->department ?? '',
-                    'leaves'                 => false,
-                ];
-
-                [$ordOt, $ordNd, $ordNdOt] = $computation->autocalculateOrd(
-                    $rowData, $nonWorkingDays, $employeeData, null, null, $biometricImportId
-                );
-
-                $rdResult = $computation->autocalculateRdAndOvertime($rowData, collect($employeeData));
-
-                $computation->logOvertimeDb(
-                    $rowData,
-                    $ordOt, $rdResult['rd_ot'], $ordNd, $ordNdOt,
-                    $rdResult['rd'], $rdResult['rd_nd'], $rdResult['rd_nd_ot'],
-                    0, false, 0, 0, null,
-                    'ord', $scheduleAdjustment->schedule ?? null,
-                    'Pending', $biometricImportId,
-                    $scheduleAdjustment->attendance_records_id,
-                    null, 'ord'
-                );
-            }
+            [$nonWorkingDays, $employeeData] = $this->computationInputs();
+            $snapshotResult = $this->approveAdjustment(
+                $scheduleAdjustment, app(ComputationService::class), $nonWorkingDays, $employeeData, $biometricImportId
+            );
 
             return response()->json([
                 'success'      => true,
@@ -199,6 +133,148 @@ class ScheduleAdjustmentController extends Controller
                 'error'   => $e->getMessage(),
             ], 500);
         }
+    }
+
+    /**
+     * Non-working days and the employee list that ComputationService needs, loaded once per request.
+     */
+    protected function computationInputs(): array
+    {
+        $nonWorkingDays = DB::table('custom_dates')
+            ->pluck('record_date')
+            ->map(fn($d) => substr($d, 0, 10))
+            ->toArray();
+        $employeeData = DB::table('employee_management')->get()->toArray();
+
+        return [$nonWorkingDays, $employeeData];
+    }
+
+    /**
+     * Mark an adjustment Approved and recalculate the overtime of its attendance record with the
+     * new schedule. Returns the snapshot result (null when the attendance record is missing).
+     */
+    protected function approveAdjustment(
+        ScheduleAdjustment $scheduleAdjustment,
+        ComputationService $computation,
+        array $nonWorkingDays,
+        array $employeeData,
+        $biometricImportId
+    ): ?array {
+        $scheduleAdjustment->approval_status = 'Approved';
+        $scheduleAdjustment->save();
+
+        $attendanceRecord = DB::table('attendance_records')
+            ->where('id', $scheduleAdjustment->attendance_records_id)
+            ->first();
+
+        $snapshotResult = null;
+
+        if ($attendanceRecord) {
+            $emp = DB::table('employee_management')
+                ->where('id', $attendanceRecord->employee_management_id)
+                ->first();
+
+            // ── Snapshot + midnight-safe OT for any shift change ────────────
+            // Look up the existing overtime record so we can preserve its values
+            // before recalculating with the new schedule.
+            $originalOt = DB::table('overtimes')
+                ->where('attendance_records_id', $scheduleAdjustment->attendance_records_id)
+                ->where('biometric_imports_id', $biometricImportId)
+                ->first();
+
+            $snapshotPath   = storage_path('app/schedule_adjustment_snapshots.json');
+            $adjustmentData = array_merge((array)$scheduleAdjustment->toArray(), [
+                'employee_name' => $emp->employee_name ?? '',
+                'earliest_time' => $attendanceRecord->earliest_time,
+                'latest_time'   => $attendanceRecord->latest_time,
+            ]);
+
+            $snapshotResult = $computation->adjustShiftWithSnapshot(
+                $adjustmentData,
+                $originalOt,
+                $snapshotPath
+            );
+
+            // Use the midnight-corrected times returned by adjustShiftWithSnapshot
+            // so the downstream autocalculate methods receive proper in/out values.
+            $adjustedEarliest = $snapshotResult['adjusted']['earliest_time'];
+            $adjustedLatest   = $snapshotResult['adjusted']['latest_time'];
+
+            // ── Full ND/RD breakdown using corrected times ───────────────────
+            $rowData = [
+                'employee_name'          => $emp->employee_name ?? '',
+                'employee_management_id' => $attendanceRecord->employee_management_id,
+                'record_date'            => substr($attendanceRecord->record_date, 0, 10),
+                'earliest_time'          => $adjustedEarliest,
+                'latest_time'            => $adjustedLatest,
+                'department'             => $emp->department ?? '',
+                'leaves'                 => false,
+            ];
+
+            [$ordOt, $ordNd, $ordNdOt] = $computation->autocalculateOrd(
+                $rowData, $nonWorkingDays, $employeeData, null, null, $biometricImportId
+            );
+
+            $rdResult = $computation->autocalculateRdAndOvertime($rowData, collect($employeeData));
+
+            $computation->logOvertimeDb(
+                $rowData,
+                $ordOt, $rdResult['rd_ot'], $ordNd, $ordNdOt,
+                $rdResult['rd'], $rdResult['rd_nd'], $rdResult['rd_nd_ot'],
+                0, false, 0, 0, null,
+                'ord', $scheduleAdjustment->schedule ?? null,
+                'Pending', $biometricImportId,
+                $scheduleAdjustment->attendance_records_id,
+                null, 'ord'
+            );
+        }
+
+        return $snapshotResult;
+    }
+
+    protected function bulkTable(): string { return 'schedule_adjustments'; }
+    protected function bulkModel(): string { return ScheduleAdjustment::class; }
+    protected function bulkStatusColumn(): string { return 'approval_status'; }
+    protected function bulkPendingValue(): string { return 'Pending'; }
+    protected function bulkDateColumn(): string { return 'record_date'; }
+
+    protected function bulkRecords(int $count): string
+    {
+        return "{$count} schedule " . ($count === 1 ? 'adjustment' : 'adjustments');
+    }
+
+    /**
+     * Each adjustment recalculates overtime, so approve them one by one, each in its own
+     * transaction: a failure skips that adjustment without undoing the others.
+     */
+    protected function approvePendingRecords(Collection $ids): int
+    {
+        if ($ids->isEmpty()) {
+            return 0;
+        }
+
+        $biometricImportId = $this->biometricHistoryList->getLoadedRecordId();
+        $computation = app(ComputationService::class);
+        [$nonWorkingDays, $employeeData] = $this->computationInputs();
+
+        $approved = 0;
+        foreach ($ids as $id) {
+            try {
+                $approved += DB::transaction(function () use ($id, $computation, $nonWorkingDays, $employeeData, $biometricImportId) {
+                    $scheduleAdjustment = ScheduleAdjustment::lockForUpdate()->find($id);
+                    if (!$scheduleAdjustment || $scheduleAdjustment->approval_status !== 'Pending') {
+                        return 0;
+                    }
+                    $this->approveAdjustment($scheduleAdjustment, $computation, $nonWorkingDays, $employeeData, $biometricImportId);
+
+                    return 1;
+                });
+            } catch (\Throwable $e) {
+                Log::error("Bulk approve of schedule adjustment {$id} failed: {$e->getMessage()}");
+            }
+        }
+
+        return $approved;
     }
 
     public function cancel($id)

@@ -124,10 +124,10 @@
         </div>
     </div> --}}
     {{-- <button x-data @click.prevent="$dispatch('open-modal', 'finalize')" onclick="GenerateCSVreportFiltered();" --}}
-    <div class="py-12 flex justify-center">
+    <div class="py-6 flex justify-center">
         <div class="max-w-xl w-full bg-white border border-gray-200 rounded-2xl shadow-lg p-8">
             <!-- Header -->
-            <h2 class="text-2xl font-bold text-gray-900 text-center flex items-center justify-center gap-2">
+            <h2 class="text-xl font-semibold text-gray-900 text-center flex items-center justify-center gap-2">
                 <i class="fas fa-chart-bar text-green-600"></i> Final Report Generation
             </h2>
 

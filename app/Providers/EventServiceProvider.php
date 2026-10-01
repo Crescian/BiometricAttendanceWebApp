@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Logout;
 use Illuminate\Auth\Events\Failed;
-use App\Models\AttendanceLog;
+use App\Services\AuditLogger;
 
 class EventServiceProvider extends ServiceProvider
 {
@@ -31,37 +31,38 @@ class EventServiceProvider extends ServiceProvider
      */
     public function boot()
     {
-        // Successful login
+        // Sign-in / sign-out go to the audit trail. Failed sign-ins are recorded with their reason
+        // in LoginRequest, since credentials are checked by the Ticketing service, not Auth::attempt.
         Event::listen(Login::class, function ($event) {
-            AttendanceLog::create([
-                'user_id' => $event->user->id,
+            AuditLogger::record('auth.login.success', [
+                'category' => 'auth',
                 'action' => 'login',
-                'timestamp' => now(),
-                'ip_address' => request()->ip(),
-                'device_info' => request()->userAgent(),
+                'actor' => $event->user,
+                'description' => 'Signed in',
+                'metadata' => ['remember' => (bool) $event->remember],
             ]);
         });
 
-        // Logout
         Event::listen(Logout::class, function ($event) {
-            AttendanceLog::create([
-                'user_id' => $event->user->id,
+            if (! $event->user) {
+                return;
+            }
+            AuditLogger::record('auth.logout', [
+                'category' => 'auth',
                 'action' => 'logout',
-                'timestamp' => now(),
-                'ip_address' => request()->ip(),
-                'device_info' => request()->userAgent(),
+                'actor' => $event->user,
+                'description' => 'Signed out',
             ]);
         });
 
-        // Failed login
         Event::listen(Failed::class, function ($event) {
-            AttendanceLog::create([
-                'user_id' => $event->user ? $event->user->id : null,
-                'action' => 'failed_login',
-                'timestamp' => now(),
-                'ip_address' => request()->ip(),
-                'device_info' => request()->userAgent(),
-                'notes' => 'Failed login attempt',
+            AuditLogger::record('auth.login.failed', [
+                'category' => 'auth',
+                'action' => 'login',
+                'outcome' => 'failure',
+                'actor' => null,
+                'actor_email' => $event->credentials['email'] ?? null,
+                'description' => 'Failed sign-in attempt',
             ]);
         });
     }

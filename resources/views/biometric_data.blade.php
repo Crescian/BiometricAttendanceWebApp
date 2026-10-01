@@ -100,7 +100,7 @@
         <div class="loader"></div>
     </div>
 
-    <div class="py-12">
+    <div class="py-6">
         <div class="max-w-3xl mx-auto sm:px-6 lg:px-8">
             <div class="bg-white shadow-sm sm:rounded-lg p-8 border border-gray-200">
                 <h3 class="text-lg font-semibold text-gray-800">Upload CSV</h3>

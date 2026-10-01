@@ -116,6 +116,7 @@
             /* darker green on hover */
         }
     </style>
+    <x-approval-table-assets />
     {{-- <x-slot name="header">
         <div class="flex items-center justify-between">
             <h2 class="font-semibold text-xl text-gray-800 leading-tight">
@@ -133,91 +134,62 @@
         </div>
     </x-slot> --}}
 
-    <div class="px-16 py-5">
+    <div class="px-2 lg:px-4">
 
         <div class="loader-overlay" id="loaderOverlay">
             <div class="loader"></div>
         </div>
 
-        <div class="p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
-            <!-- Pending -->
-            <div onclick="loadCertificateOfAttendance('Pending');"
-                class="border-4 border-yellow-500 text-gray-900 rounded-xl shadow-md p-6 flex flex-col items-center cursor-pointer hover:scale-105 transition-transform duration-200">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-10 h-10 mb-2 text-yellow-500" fill="none"
-                    viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round"
-                        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <h2 class="text-lg font-semibold">Pending/Resubmitted for editing</h2>
-                <p id="pending-count" class="text-3xl font-bold mt-2">0</p>
-            </div>
-
-            <!-- Approved -->
-            <div onclick="loadCertificateOfAttendance('Approved');"
-                class="border-4 border-green-600 text-gray-900 rounded-xl shadow-md p-6 flex flex-col items-center cursor-pointer hover:scale-105 transition-transform duration-200">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-10 h-10 mb-2 text-green-600" fill="none"
-                    viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-                </svg>
-                <h2 class="text-lg font-semibold">Approved</h2>
-                <p id="approved-count" class="text-3xl font-bold mt-2">0</p>
-            </div>
-
-            <!-- Cancelled -->
-            <div onclick="loadCertificateOfAttendance('Cancelled');"
-                class="border-4 border-red-600 text-gray-900 rounded-xl shadow-md p-6 flex flex-col items-center cursor-pointer hover:scale-105 transition-transform duration-200">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-10 h-10 mb-2 text-red-600" fill="none"
-                    viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-                <h2 class="text-lg font-semibold">Rejected/Cancelled</h2>
-                <p id="cancelled-count" class="text-3xl font-bold mt-2">0</p>
+        <!-- Page header + toolbar -->
+        <div class="flex flex-wrap items-center justify-between gap-3 px-4 pt-4 pb-3">
+            <h1 class="text-xl font-semibold text-gray-900">{{ __('Certificates of Attendance') }}</h1>
+            <div class="flex flex-wrap items-center gap-2">
+                <button type="button" onclick="openAddCertificateModal();"
+                    class="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-white bg-green-600 rounded-md hover:bg-green-700 shadow-sm">
+                    <i class="fa-solid fa-plus"></i>
+                    Add
+                </button>
+                <x-bulk-approve prefix="coa" table="#certificate-attendance-table" pending="Pending" title="certificates of attendance"
+                    one="certificate" many="certificates" on-done="loadCertificateOfAttendanceCounts"
+                    :approve-url="route('certificateOfAttendance.bulkApprove')" :options-url="route('certificateOfAttendance.bulkOptions')"
+                    :approve-by-url="route('certificateOfAttendance.bulkApproveBy')" />
+                <div class="relative">
+                    <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i>
+                    <input id="coa-search" type="search" placeholder="Search"
+                        class="w-48 pl-8 pr-3 py-1.5 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500">
+                </div>
+                <div id="coa-toolbar-buttons" class="flex items-center gap-2"></div>
             </div>
         </div>
 
-        <!-- Table Section inside Card -->
-        <div class="p-6">
-            <div class="bg-white shadow-lg rounded-lg border border-gray-200">
-                <!-- Card Header -->
-                <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-                    <h2 class="font-bold text-3xl">
-                        <i class="fa-regular fa-clone text-3xl" style="color: #8DE11A; font-size: 40px"></i>
-                        {{ __('Certificates of Attendance') }}
-                    </h2>
+        <!-- Table card -->
+        <div class="px-4 pb-4">
+            <div class="bg-white rounded-lg border border-gray-200 shadow-sm">
+                <!-- Status filter -->
+                <x-status-tabs loader="loadCertificateOfAttendance" />
 
-                    <div class="flex space-x-3">
-                        <button onclick="openAddCertificateModal();"
-                            class="flex items-center px-4 py-2 bg-white text-green-600 font-semibold rounded-lg shadow-sm border border-green-600 hover:bg-green-50">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 mr-2" fill="none"
-                                viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
-                            </svg>
-                            Add
-                            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 ml-2" fill="none"
-                                viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-                            </svg>
-                        </button>
-                    </div>
-                </div>
-                <!-- Table Section inside Card -->
-                <div class="p-6 text-gray-900">
-                    <div class="border rounded-lg shadow-sm overflow-hidden">
+                <div class="p-2 text-gray-900">
+                    <div class="border border-gray-200 rounded-md overflow-hidden">
                         <div class="overflow-x-auto">
-                            <table id="certificate-attendance-table" class="table-auto w-full text-sm">
-                                <thead class="text-white sticky top-0" style="background-color: #00291B;">
+                            <table id="certificate-attendance-table" class="modern-table w-full text-sm">
+                                <thead>
                                     <tr>
-                                        <th style="width: 10%">Employee Name</th>
-                                        <th style="width: 5%">Department</th>
-                                        <th style="width: 5%">Report To</th>
-                                        <th style="width: 5%">Schedule</th>
-                                        <th style="width: 6%">Earliest Time</th>
-                                        <th style="width: 6%">Latest Time</th>
-                                        <th style="width: 22%">Others</th>
-                                        <th style="width: 22%">Reason</th>
-                                        <th style="width: 5%">Date</th>
-                                        <th style="width: 8%">Approval Status</th>
-                                        <th style="width: 6%; text-align: center;">Action</th>
+                                        <th class="noVis" style="width: 2rem;"></th>
+                                        <th class="noVis" style="width: 2.5rem;">
+                                            <input type="checkbox" id="coa-select-all" title="Select all on this page"
+                                                class="rounded border-gray-300 text-green-600 focus:ring-green-500">
+                                        </th>
+                                        <th>Employee</th>
+                                        <th>Department</th>
+                                        <th>Report To</th>
+                                        <th>Schedule</th>
+                                        <th>Earliest Time</th>
+                                        <th>Latest Time</th>
+                                        <th>Others</th>
+                                        <th>Reason</th>
+                                        <th>Date</th>
+                                        <th>Status</th>
+                                        <th>Action</th>
                                     </tr>
                                 </thead>
                                 <tbody></tbody>
@@ -405,275 +377,145 @@
         $('#loaderOverlay').hide();
         loadEmployeeName();
         loadCertificateOfAttendance('Pending');
+        bindTableSearch('#coa-search', '#certificate-attendance-table');
 
         function finalizeButton() {
             alert('Finalize Overtime function is not yet implemented.');
         }
 
         function loadCertificateOfAttendance(status = 'Pending') {
+            bulk_coa.setStatus(status);
+
             if ($.fn.DataTable.isDataTable('#certificate-attendance-table')) {
                 $('#certificate-attendance-table').DataTable().clear().destroy();
             }
+            $('#coa-toolbar-buttons').empty();
+
             $.ajax({
                 url: "{{ route('department.getUserDepartment') }}",
                 type: 'GET',
                 dataType: 'json',
                 success: function(data) {
-                    let departmentName;
-                    if (!data.success) {
-                        departmentName = 'N/A';
-                    } else {
-                        departmentName = data.data.department_name;
-                    }
+                    let departmentName = !data.success ? 'N/A' : data.data.department_name;
 
-                    // Initialize DataTable after a small delay to ensure layout stability
                     setTimeout(() => {
-                        let table = $('#certificate-attendance-table').DataTable({
-                            // processing: true,
+                        const table = $('#certificate-attendance-table').DataTable({
                             serverSide: true,
-                            autoWidth: false, // important for fixed widths
-                            responsive: true,
-                            lengthChange: true, // only keep this
-                            lengthMenu: [10, 20, 50], // page length options
-                            pageLength: 50, // default rows per page
-                            // searching: false, // ✅ hides the global search box
-                            dom: '<"flex justify-between items-center mb-4"Bf>rt<"flex justify-between items-center mt-4"lip>',
+                            autoWidth: false,
+                            responsive: {
+                                details: {
+                                    type: 'column',
+                                    target: 0
+                                }
+                            },
+                            lengthChange: true,
+                            lengthMenu: [10, 20, 50],
+                            pageLength: 50,
+                            dom: 'rt<"flex flex-wrap justify-between items-center gap-2 px-3 py-2 border-t border-gray-200 text-xs text-gray-600"lip>',
+                            search: {
+                                search: $('#coa-search').val() || ''
+                            },
+                            order: [
+                                [2, 'asc']
+                            ],
                             ajax: {
                                 url: "{{ route('certificateOfAttendance.fetch') }}",
                                 data: function(d) {
                                     d.status = status;
                                     d.userRole = userRole;
                                     if (userRole === 'user') {
-                                        d.department =
-                                            departmentName; // only add department if user
+                                        d.department = departmentName;
                                     }
                                 }
                             },
-                            buttons: [{
-                                    extend: 'collection',
-                                    text: '<i class="fa fa-download mr-1 text-green-600"></i> Export',
-                                    className: 'flex items-center px-4 py-2 bg-white font-semibold rounded-lg shadow-sm border border-green-600 mt-3',
-                                    attr: {
-                                        style: 'border-color:#16a34a !important;'
-                                    },
-                                    buttons: [{
-                                            extend: 'copyHtml5',
-                                            text: '<i class="fa fa-copy mr-1 text-gray-700"></i> Copy',
-                                            className: 'bg-white text-black px-3 py-1 rounded hover:bg-gray-100 border border-gray-300'
-                                        },
-                                        {
-                                            extend: 'excelHtml5',
-                                            text: '<i class="fa fa-file-excel mr-1 text-green-600"></i> Excel',
-                                            className: 'bg-white text-black px-3 py-1 rounded hover:bg-green-50 border border-gray-300'
-                                        },
-                                        {
-                                            extend: 'csvHtml5',
-                                            text: '<i class="fa fa-file-csv mr-1 text-blue-600"></i> CSV',
-                                            className: 'bg-white text-black px-3 py-1 rounded hover:bg-blue-50 border border-gray-300'
-                                        },
-                                        {
-                                            extend: 'pdfHtml5',
-                                            text: '<i class="fa fa-file-pdf mr-1 text-red-600"></i> PDF',
-                                            className: 'bg-white text-black px-3 py-1 rounded hover:bg-red-50 border border-gray-300'
-                                        },
-                                        {
-                                            extend: 'print',
-                                            text: '<i class="fa fa-print mr-1 text-gray-700"></i> Print',
-                                            className: 'bg-white text-black px-3 py-1 rounded hover:bg-gray-100 border border-gray-300'
-                                        }
-                                    ]
-                                },
+                            drawCallback: function() {
+                                bulk_coa.syncSelectAll();
+                            },
+                            buttons: exportAndColumnButtons(),
+                            columns: [
+                                expandControlColumn,
+                                bulk_coa.checkboxColumn(),
                                 {
-                                    extend: 'colvis',
-                                    text: '<i class="fa fa-columns mr-1 text-green-600"></i> Columns',
-                                    className: 'flex items-center px-4 py-2 bg-white font-semibold rounded-lg shadow-sm border border-green-600 mt-3',
-                                    attr: {
-                                        style: 'border-color:#16a34a !important;'
-                                    },
-                                    columns: ':not(:last-child)', // hide last "action" column
-                                    columnText: function(dt, idx, title) {
-                                        // If no title, define one manually
-                                        const defaultTitles = [
-                                            'Employee Name', 'Department',
-                                            'Report To', 'Schedule',
-                                            'Earliest Time', 'Latest Time',
-                                            'Others', 'Reason',
-                                            'Date', 'Status', 'Action'
-                                        ];
-                                        return defaultTitles[idx] ||
-                                            `Column ${idx + 1}`;
-                                    }
-                                }
-                            ],
-                            columns: [{
                                     data: 'employee_name',
                                     name: 'employee_name',
-                                    width: "10%"
-                                }, {
+                                    className: 'all',
+                                    render: function(data, type) {
+                                        return type === 'display' ? employeeNameCell(data) : data;
+                                    }
+                                },
+                                {
                                     data: 'department',
                                     name: 'department',
-                                    width: "5%",
-                                    render: function(data, type, row) {
-                                        if (!data || data.trim() === '' || data ===
-                                            'Not Assigned') {
-                                            return `<span class="px-2 py-1 text-xs font-semibold rounded-full bg-gray-300 text-gray-800">Not Assigned</span>`;
-                                        }
-
-                                        // Generate consistent color based on department name
-                                        const colors = [
-                                            'bg-blue-100 text-blue-800',
-                                            'bg-green-100 text-green-800',
-                                            'bg-yellow-100 text-yellow-800',
-                                            'bg-purple-100 text-purple-800',
-                                            'bg-pink-100 text-pink-800',
-                                            'bg-indigo-100 text-indigo-800',
-                                            'bg-red-100 text-red-800',
-                                            'bg-teal-100 text-teal-800'
-                                        ];
-
-                                        // Pick a color based on department name hash
-                                        const index = Math.abs([...data].reduce((sum,
-                                                c) => sum + c.charCodeAt(0), 0)) %
-                                            colors.length;
-                                        const colorClass = colors[index];
-
-                                        return `<span class="px-2 py-1 text-xs font-semibold rounded-full ${colorClass}">${data}</span>`;
+                                    render: function(data, type) {
+                                        return type === 'display' ? colorBadgeCell(data) : data;
                                     }
-                                }, {
+                                },
+                                {
                                     data: 'report_to',
                                     name: 'report_to',
-                                    width: "5%",
-                                    render: function(data, type, row) {
-                                        if (!data || data.trim() === '' || data ===
-                                            'Not Assigned') {
-                                            return `<span class="px-2 py-1 text-xs font-semibold rounded-full bg-gray-300 text-gray-800">Not Assigned</span>`;
-                                        }
-
-                                        // Generate consistent color based on report_to name
-                                        const colors = [
-                                            'bg-blue-100 text-blue-800',
-                                            'bg-green-100 text-green-800',
-                                            'bg-yellow-100 text-yellow-800',
-                                            'bg-purple-100 text-purple-800',
-                                            'bg-pink-100 text-pink-800',
-                                            'bg-indigo-100 text-indigo-800',
-                                            'bg-red-100 text-red-800',
-                                            'bg-teal-100 text-teal-800'
-                                        ];
-
-                                        // Pick a color based on string hash
-                                        const index = Math.abs([...data].reduce((sum,
-                                                c) => sum + c.charCodeAt(0), 0)) %
-                                            colors.length;
-                                        const colorClass = colors[index];
-
-                                        return `<span class="px-2 py-1 text-xs font-semibold rounded-full ${colorClass}">${data}</span>`;
+                                    render: function(data, type) {
+                                        return type === 'display' ? colorBadgeCell(data) : data;
                                     }
                                 },
                                 {
                                     data: 'schedule',
-                                    name: 'schedule',
-                                    width: "5%"
+                                    name: 'schedule'
                                 },
                                 {
                                     data: 'earliest_time',
-                                    name: 'earliest_time',
-                                    width: "6%"
+                                    name: 'earliest_time'
                                 },
                                 {
                                     data: 'latest_time',
-                                    name: 'latest_time',
-                                    width: "6%"
+                                    name: 'latest_time'
                                 },
                                 {
                                     data: 'others',
-                                    name: 'others',
-                                    width: "22%"
+                                    name: 'others'
                                 },
                                 {
                                     data: 'reason',
-                                    name: 'reason',
-                                    width: "22%"
+                                    name: 'reason'
                                 },
                                 {
                                     data: 'date',
                                     name: 'date',
-                                    width: "5%"
+                                    render: dateOnlyCell
                                 },
                                 {
                                     data: 'approval_status',
                                     name: 'approval_status',
-                                    width: "8%",
-                                    render: function(data, type, row) {
-                                        let badgeClass = '';
-                                        if (data === 'Pending') badgeClass =
-                                            'bg-yellow-100 text-yellow-800';
-                                        else if (data === 'Approved') badgeClass =
-                                            'bg-green-100 text-green-800';
-                                        else badgeClass = 'bg-red-100 text-red-800';
-
-                                        return `<span class="px-3 py-1 rounded-full text-sm font-semibold ${badgeClass}">${data}</span>`;
+                                    render: function(data, type) {
+                                        return type === 'display' ? statusBadgeCell(data) : data;
                                     }
                                 },
                                 {
                                     data: null,
                                     orderable: false,
                                     searchable: false,
-                                    width: "6%",
+                                    className: 'noVis all text-center',
                                     render: function(data, type, row) {
-                                        switch (row.approval_status) {
-                                            case 'Pending':
-                                                return `
-                                                <div class="flex justify-center space-x-2">
-                                                    <button onclick="approveCertificate(${row.id})"
-                                                        class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-2 rounded-full shadow-md hover:shadow-lg transition">
-                                                        <i class="fas fa-check"></i>
-                                                    </button>
-                                                    <button onclick="cancelCertificate(${row.id})"
-                                                        class="bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-full shadow-md hover:shadow-lg transition">
-                                                        <i class="fas fa-times"></i>
-                                                    </button>
-                                                </div>`;
-                                            case 'Approved':
-                                                return `<div class="flex items-center justify-center space-x-2">
-                                                        <button onclick="cancelCertificate(${row.id})"
-                                                            class="bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-full shadow-md hover:shadow-lg transition">
-                                                            <i class="fas fa-times"></i>
-                                                        </button>
-                                                    </div>`;
-                                            case 'Cancelled':
-                                                return `
-                                                    <div class="flex items-center justify-center space-x-2">
-                                                        <button onclick="handleRedo(${row.id})"
-                                                            class="bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-2 rounded-full shadow-md hover:shadow-lg transition">
-                                                            <i class="fas fa-undo"></i>
-                                                        </button>
-                                                    </div>`;
-                                            default:
-                                                return '';
-                                        }
+                                        return approvalActionButtons(row.approval_status, row.id, {
+                                            approve: 'approveCertificate',
+                                            cancel: 'cancelCertificate',
+                                            restore: 'handleRedo'
+                                        });
                                     }
                                 }
                             ],
-                            initComplete: function() {
-                                // Apply column-specific filters
-                                this.api().columns().every(function() {
-                                    var column = this;
-                                    $('input', column.header()).on(
-                                        'keyup change clear',
-                                        function() {
-                                            if (column.search() !== this
-                                                .value) {
-                                                column.search(this.value)
-                                                    .draw();
-                                            }
-                                        });
-                                });
+                            language: {
+                                emptyTable: "No records available",
+                                info: "Showing _START_ to _END_ of _TOTAL_ entries",
+                                lengthMenu: "Rows per page _MENU_",
+                                paginate: {
+                                    first: "First",
+                                    last: "Last",
+                                    next: "Next",
+                                    previous: "Previous"
+                                }
                             }
                         });
-
-                        // Adjust columns once loaded to keep headers aligned
-                        table.columns.adjust().draw();
+                        table.buttons().container().appendTo('#coa-toolbar-buttons');
                     }, 150);
                 },
                 error: function(xhr, status, error) {

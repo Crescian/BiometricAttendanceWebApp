@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\BulkApprovesRecords;
 use App\Models\Leave;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Yajra\DataTables\Facades\DataTables;
 use Carbon\Carbon;
 use App\Models\BiometricHistoryList;
@@ -11,6 +13,8 @@ use App\Models\EmployeeManagement;
 
 class LeaveController extends Controller
 {
+    use BulkApprovesRecords;
+
     protected $biometricHistoryList;
 
     public function __construct(BiometricHistoryList $biometricHistoryList)
@@ -60,6 +64,31 @@ class LeaveController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    protected function bulkTable(): string { return 'leaves'; }
+    protected function bulkModel(): string { return Leave::class; }
+    protected function bulkStatusColumn(): string { return 'status'; }
+    protected function bulkPendingValue(): string { return 'pending'; }
+    protected function bulkDateColumn(): string { return 'record_date'; }
+
+    protected function bulkRecords(int $count): string
+    {
+        return "{$count} leave " . ($count === 1 ? 'request' : 'requests');
+    }
+
+    /**
+     * Approving a leave only flips its status, so a batch is a single update.
+     */
+    protected function approvePendingRecords(Collection $ids): int
+    {
+        if ($ids->isEmpty()) {
+            return 0;
+        }
+
+        return Leave::whereIn('id', $ids)
+            ->where('status', 'pending')
+            ->update(['status' => 'approved', 'updated_at' => now()]);
     }
 
     public function cancel($id)

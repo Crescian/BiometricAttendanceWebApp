@@ -72,6 +72,12 @@ return [
     'timezone' => 'Asia/Manila',
 
     /*
+    | HTTP proxies allowed to set X-Forwarded-For (comma-separated IPs/CIDRs). Empty = none, so the
+    | client IP recorded in the audit log cannot be faked with a forged header.
+    */
+    'trusted_proxies' => env('TRUSTED_PROXIES', ''),
+
+    /*
     |--------------------------------------------------------------------------
     | Application Locale Configuration
     |--------------------------------------------------------------------------

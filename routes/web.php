@@ -3,7 +3,7 @@
 use App\Http\Controllers\BiometricImportController;
 use App\Http\Controllers\AttendanceRecordController;
 use App\Http\Controllers\LeaveController;
-use App\Http\Controllers\AttendanceLogController;
+use App\Http\Controllers\AuditLogController;
 use App\Http\Controllers\ScheduleController;
 use App\Http\Controllers\CompanyController;
 use App\Http\Controllers\DepartmentController;
@@ -36,10 +36,17 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // 🧑‍💼 Admin-only routes
     Route::middleware('role:admin')->group(function () {
         Route::get('/organization-structure', [PageController::class, 'organizationStructure'])->name('organization.structure');
+        Route::get('/user-management', [PageController::class, 'userManagement'])->name('user.management');
         Route::get('/biometric-data', [PageController::class, 'biometricData'])->name('biometric.data');
         Route::get('/csv-import', [PageController::class, 'csvImport'])->name('csv.import');
         Route::get('/attendance-tracking', [PageController::class, 'attendanceTracking'])->name('attendance.tracking');
-        Route::get('/attendance-log', [PageController::class, 'attendanceLog'])->name('attendance.log');
+        // Audit Log (read-only; viewing, exporting and verifying are themselves audited)
+        Route::get('/attendance-log', [AuditLogController::class, 'index'])->name('attendance.log');
+        Route::get('/audit-log', [AuditLogController::class, 'index'])->name('audit.log');
+        Route::get('/audit-log/data', [AuditLogController::class, 'data'])->name('audit.data');
+        Route::get('/audit-log/export', [AuditLogController::class, 'export'])->name('audit.export');
+        Route::post('/audit-log/verify', [AuditLogController::class, 'verify'])->name('audit.verify');
+        Route::get('/audit-log/{id}', [AuditLogController::class, 'show'])->whereNumber('id')->name('audit.show');
 
         // Manual Time In / Time Out on attendance records
         Route::post('/attendance-record', [AttendanceRecordController::class, 'store'])->name('attendance-record.store');
@@ -84,6 +91,10 @@ Route::middleware('auth')->group(function () {
     Route::get('/overtime', [OvertimeController::class, 'index'])->name('overtime.fetch');
     Route::post('/overtime/{id}/approved', [OvertimeController::class, 'approve'])->name('overtime.approve');
     Route::post('/overtime/{id}/cancelled', [OvertimeController::class, 'cancel'])->name('overtime.cancel');
+    // Must stay above /overtime/{id}, which would otherwise capture these paths as an id
+    Route::post('/overtime/bulk-approve', [OvertimeController::class, 'bulkApprove'])->name('overtime.bulkApprove');
+    Route::get('/overtime/bulk-options', [OvertimeController::class, 'bulkOptions'])->name('overtime.bulkOptions');
+    Route::post('/overtime/bulk-approve-by', [OvertimeController::class, 'bulkApproveBy'])->name('overtime.bulkApproveBy');
     Route::post('/overtime/{id}', [OvertimeController::class, 'updateTime'])->name('overtime.updateTime');
     Route::get('/overtime/{id}', [OvertimeController::class, 'edit'])->name('overtime.edit');
 
@@ -93,6 +104,9 @@ Route::middleware('auth')->group(function () {
     Route::post('/certificate-attendance/store', [CertificateOfAttendanceController::class, 'store'])->name('certificateOfAttendance.store');
     Route::post('/certificateOfAttendance/{id}/approved', [CertificateOfAttendanceController::class, 'approve'])->name('certificateOfAttendance.approve');
     Route::post('/certificateOfAttendance/{id}/cancelled', [CertificateOfAttendanceController::class, 'cancel'])->name('certificateOfAttendance.cancel');
+    Route::post('/certificateOfAttendance/bulk-approve', [CertificateOfAttendanceController::class, 'bulkApprove'])->name('certificateOfAttendance.bulkApprove');
+    Route::get('/certificateOfAttendance/bulk-options', [CertificateOfAttendanceController::class, 'bulkOptions'])->name('certificateOfAttendance.bulkOptions');
+    Route::post('/certificateOfAttendance/bulk-approve-by', [CertificateOfAttendanceController::class, 'bulkApproveBy'])->name('certificateOfAttendance.bulkApproveBy');
 
     Route::get('/schedule-adjustments/status-summary', [ScheduleAdjustmentController::class, 'getScheduleAdjustmentSummary'])
     ->name('schedule.status.summary');
@@ -101,6 +115,9 @@ Route::middleware('auth')->group(function () {
     Route::post('/scheduleAdjustment/store', [ScheduleAdjustmentController::class, 'store'])->name('scheduleAdjustment.store');
     Route::post('/scheduleAdjustment/{id}/approved', [ScheduleAdjustmentController::class, 'approve'])->name('scheduleAdjustment.approve');
     Route::post('/scheduleAdjustment/{id}/cancelled', [ScheduleAdjustmentController::class, 'cancel'])->name('scheduleAdjustment.cancel');
+    Route::post('/scheduleAdjustment/bulk-approve', [ScheduleAdjustmentController::class, 'bulkApprove'])->name('scheduleAdjustment.bulkApprove');
+    Route::get('/scheduleAdjustment/bulk-options', [ScheduleAdjustmentController::class, 'bulkOptions'])->name('scheduleAdjustment.bulkOptions');
+    Route::post('/scheduleAdjustment/bulk-approve-by', [ScheduleAdjustmentController::class, 'bulkApproveBy'])->name('scheduleAdjustment.bulkApproveBy');
 
     Route::post('/custom-dates/store', [CustomDateController::class, 'store'])->name('custom-dates.store');
     Route::get('/custom-dates', [CustomDateController::class, 'index'])->name('custom-dates.index');
@@ -125,6 +142,7 @@ Route::middleware('auth')->group(function () {
     Route::middleware('role:admin')->group(function () {
         Route::get('/users', [UserManagementController::class, 'index'])->name('users.fetch');
         Route::post('/users', [UserManagementController::class, 'store'])->name('users.store');
+        Route::put('/users/{id}', [UserManagementController::class, 'update'])->whereNumber('id')->name('users.update');
         Route::get('/users/directory', [UserManagementController::class, 'directory'])->name('users.directory');
     });
 
@@ -137,7 +155,6 @@ Route::middleware('auth')->group(function () {
     Route::post('/schedule/store', [ScheduleController::class, 'store'])->name('schedule.store');
     Route::delete('/schedule/delete/{id}', [ScheduleController::class, 'destroy'])->name('schedule.delete');
 
-    Route::get('/attendanceLogs/fetch', [AttendanceLogController::class, 'fetch'])->name('attendanceLogs.fetch');
 
     Route::get('/leaves/status-summary', [LeaveController::class, 'getLeaveStatusSummary'])
     ->name('leaves.status.summary');
@@ -146,6 +163,9 @@ Route::middleware('auth')->group(function () {
     Route::get('/leave/counts', [LeaveController::class, 'getLeavesCounts'])->name('leave.counts');
     Route::post('/leave/{id}/approved', [LeaveController::class, 'approve'])->name('leave.approve');
     Route::post('/leave/{id}/cancelled', [LeaveController::class, 'cancel'])->name('leave.cancel');
+    Route::post('/leave/bulk-approve', [LeaveController::class, 'bulkApprove'])->name('leave.bulkApprove');
+    Route::get('/leave/bulk-options', [LeaveController::class, 'bulkOptions'])->name('leave.bulkOptions');
+    Route::post('/leave/bulk-approve-by', [LeaveController::class, 'bulkApproveBy'])->name('leave.bulkApproveBy');
 
     Route::get('/attendance-record/fetch', [AttendanceRecordController::class, 'index'])->name('attendance-record.fetch');
     Route::get('/attendance/graph', [AttendanceRecordController::class, 'showAttendanceGraph'])->name('attendance.graph');

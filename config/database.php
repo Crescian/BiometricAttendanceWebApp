@@ -78,6 +78,22 @@ return [
             'sslmode' => 'prefer',
         ],
 
+        // Owner/superuser connection for migrations only. The app itself runs as a
+        // least-privilege role (DB_USERNAME) that may only INSERT/SELECT the audit trail.
+        'pgsql_admin' => [
+            'driver' => 'pgsql',
+            'host' => env('DB_HOST', '127.0.0.1'),
+            'port' => env('DB_PORT', '5432'),
+            'database' => env('DB_DATABASE', 'forge'),
+            'username' => env('DB_ADMIN_USERNAME', env('DB_USERNAME', 'forge')),
+            'password' => env('DB_ADMIN_PASSWORD', env('DB_PASSWORD', '')),
+            'charset' => 'utf8',
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'search_path' => 'public',
+            'sslmode' => 'prefer',
+        ],
+
         'sqlsrv' => [
             'driver' => 'sqlsrv',
             'url' => env('DATABASE_URL'),
@@ -107,6 +123,15 @@ return [
     */
 
     'migrations' => 'migrations',
+
+    /*
+    | Least-privilege database role the app runs as. Created (and granted INSERT/SELECT-only on the
+    | audit trail) by the 2026_10_01_000003 migration; DB_USERNAME/DB_PASSWORD then point at it.
+    */
+    'app_role' => [
+        'username' => env('DB_APP_USERNAME', 'attendance_app'),
+        'password' => env('DB_APP_PASSWORD'),
+    ],
 
     /*
     |--------------------------------------------------------------------------

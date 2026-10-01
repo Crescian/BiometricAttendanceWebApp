@@ -93,115 +93,76 @@
             left: calc(50% - 1.25em);
         }
     </style>
+    <x-approval-table-assets />
 
-    <div class="px-16 py-5">
+    <div class="px-2 lg:px-4">
+
         <div class="loader-overlay" id="loaderOverlay">
             <div class="loader"></div>
         </div>
 
-        <div class="p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
-            <!-- Pending -->
-            <div onclick="loadScheduleAdjustmentPage('Pending');"
-                class="border-4 border-yellow-500 text-gray-900 rounded-xl shadow-md p-6 flex flex-col items-center cursor-pointer hover:scale-105 transition-transform duration-200">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-10 h-10 mb-2 text-yellow-500" fill="none"
-                    viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round"
-                        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <h2 class="text-lg font-semibold">Pending/Resubmitted for editing</h2>
-                <p id="pending-count" class="text-3xl font-bold mt-2">0</p>
-            </div>
-
-            <!-- Approved -->
-            <div onclick="loadScheduleAdjustmentPage('Approved');"
-                class="border-4 border-green-600 text-gray-900 rounded-xl shadow-md p-6 flex flex-col items-center cursor-pointer hover:scale-105 transition-transform duration-200">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-10 h-10 mb-2 text-green-600" fill="none"
-                    viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-                </svg>
-                <h2 class="text-lg font-semibold">Approved</h2>
-                <p id="approved-count" class="text-3xl font-bold mt-2">0</p>
-            </div>
-
-            <!-- Cancelled -->
-            <div onclick="loadScheduleAdjustmentPage('Cancelled');"
-                class="border-4 border-red-600 text-gray-900 rounded-xl shadow-md p-6 flex flex-col items-center cursor-pointer hover:scale-105 transition-transform duration-200">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-10 h-10 mb-2 text-red-600" fill="none"
-                    viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-                <h2 class="text-lg font-semibold">Rejected/Cancelled</h2>
-                <p id="cancelled-count" class="text-3xl font-bold mt-2">0</p>
+        <!-- Page header + toolbar -->
+        <div class="flex flex-wrap items-center justify-between gap-3 px-4 pt-4 pb-3">
+            <h1 class="text-xl font-semibold text-gray-900">{{ __('Schedule Adjustments') }}</h1>
+            <div class="flex flex-wrap items-center gap-2">
+                <button type="button" onclick="viewScheduleModal();"
+                    class="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-green-700 bg-white border border-green-600 rounded-md hover:bg-green-50">
+                    <i class="fa-regular fa-calendar"></i>
+                    View Schedule
+                </button>
+                <button type="button" onclick="openAddScheduleAdjustmentModal();"
+                    class="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-white bg-green-600 rounded-md hover:bg-green-700 shadow-sm">
+                    <i class="fa-solid fa-plus"></i>
+                    Add
+                </button>
+                <x-bulk-approve prefix="sa" table="#schedule-adjustment-table" pending="Pending" title="schedule adjustments"
+                    one="schedule adjustment" many="schedule adjustments" on-done="loadScheduleAdjustmentCounts"
+                    :approve-url="route('scheduleAdjustment.bulkApprove')" :options-url="route('scheduleAdjustment.bulkOptions')"
+                    :approve-by-url="route('scheduleAdjustment.bulkApproveBy')" />
+                <div class="relative">
+                    <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i>
+                    <input id="sa-search" type="search" placeholder="Search"
+                        class="w-48 pl-8 pr-3 py-1.5 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500">
+                </div>
+                <div id="sa-toolbar-buttons" class="flex items-center gap-2"></div>
             </div>
         </div>
 
-        <!-- Table Section inside Card -->
-        <div class="p-6">
-            <div class="bg-white shadow-lg rounded-lg border border-gray-200">
-                <!-- Card Header -->
-                <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-                    <h2 class="font-bold text-3xl flex items-center">
-                        <i class="fa-regular fa-clone mr-2" style="color: #8DE11A; font-size: 40px"></i>
-                        {{ __('Schedule Adjustments') }}
-                    </h2>
+        <!-- Table card -->
+        <div class="px-4 pb-4">
+            <div class="bg-white rounded-lg border border-gray-200 shadow-sm">
+                <!-- Status filter -->
+                <x-status-tabs loader="loadScheduleAdjustmentPage" />
 
-                    <!-- Container for both buttons -->
-                    <div class="flex space-x-3">
-                        <button onclick="viewScheduleModal();"
-                            class="flex items-center px-4 py-2 bg-white text-green-600 font-semibold rounded-lg shadow-sm border border-green-600 hover:bg-green-50">
-                            {{-- <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 mr-2" fill="none"
-                                viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
-                            </svg> --}}
-                            View Schedule
-                            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 ml-2" fill="none"
-                                viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-                            </svg>
-                        </button>
-
-                        <button onclick="openAddScheduleAdjustmentModal();"
-                            class="flex items-center px-4 py-2 bg-white text-green-600 font-semibold rounded-lg shadow-sm border border-green-600 hover:bg-green-50">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 mr-2" fill="none"
-                                viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
-                            </svg>
-                            Add
-                            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 ml-2" fill="none"
-                                viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-                            </svg>
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Table Section -->
-                <div class="p-6 text-gray-900">
-                    <div id="overtime-table-container" class="overflow-x-auto border rounded-lg shadow-sm">
-                        <div id="pagination" class="flex items-center justify-center my-4 space-x-4"></div>
-                        <table id="schedule-adjustment-table" class="min-w-full table-auto">
-                            <thead class="text-white text-sm sticky top-0" style="background-color: #00291B;">
-                                <tr>
-                                    <th class="px-4 py-2 text-white font-bold">Employee Name</th>
-                                    <th class="px-4 py-2 text-white">Department</th>
-                                    <th class="px-4 py-2 text-white">Report To</th>
-                                    <th class="px-4 py-2 text-white">Schedule</th>
-                                    <th class="px-4 py-2 text-white">Others</th>
-                                    <th class="px-4 py-2 text-white">Reason</th>
-                                    <th class="px-4 py-2 text-white">Date</th>
-                                    <th class="px-4 py-2 text-white">Approval Status</th>
-                                    <th class="px-4 py-2 text-white" style="text-align: center;">Action</th>
-                                </tr>
-                            </thead>
-                            <tbody id="overtime-body" class="text-sm text-gray-800 divide-y divide-gray-200">
-                                <!-- Data will be injected here -->
-                            </tbody>
-                        </table>
+                <div class="p-2 text-gray-900">
+                    <div class="border border-gray-200 rounded-md overflow-hidden">
+                        <div class="overflow-x-auto">
+                            <table id="schedule-adjustment-table" class="modern-table w-full text-sm">
+                                <thead>
+                                    <tr>
+                                        <th class="noVis" style="width: 2rem;"></th>
+                                        <th class="noVis" style="width: 2.5rem;">
+                                            <input type="checkbox" id="sa-select-all" title="Select all on this page"
+                                                class="rounded border-gray-300 text-green-600 focus:ring-green-500">
+                                        </th>
+                                        <th>Employee</th>
+                                        <th>Department</th>
+                                        <th>Report To</th>
+                                        <th>Schedule</th>
+                                        <th>Others</th>
+                                        <th>Reason</th>
+                                        <th>Date</th>
+                                        <th>Status</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
-
         <!-- Add Certificate Modal -->
         <div id="addScheduleAdjustmentModal"
             class="fixed inset-0 z-50 hidden items-center justify-center bg-black bg-opacity-50">
@@ -461,6 +422,7 @@
         const userRole = "{{ Auth::user()->role ?? '' }}";
         $('#loaderOverlay').hide();
         loadScheduleAdjustmentPage();
+        bindTableSearch('#sa-search', '#schedule-adjustment-table');
         loadEmployeeName();
         loadScheduleAdjustmentCounts('Pending');
 
@@ -657,280 +619,130 @@
 
 
         function loadScheduleAdjustmentPage(status = 'Pending') {
-            // Destroy existing DataTable if already initialized
+            bulk_sa.setStatus(status);
+
             if ($.fn.DataTable.isDataTable('#schedule-adjustment-table')) {
                 $('#schedule-adjustment-table').DataTable().clear().destroy();
             }
+            $('#sa-toolbar-buttons').empty();
 
             $.ajax({
                 url: "{{ route('department.getUserDepartment') }}",
                 type: 'GET',
                 dataType: 'json',
                 success: function(data) {
-                    let departmentName;
-                    if (!data.success) {
-                        departmentName = 'N/A';
-                    } else {
-                        departmentName = data.data.department_name;
-                    }
+                    let departmentName = !data.success ? 'N/A' : data.data.department_name;
+
                     setTimeout(() => {
-                        let table = $('#schedule-adjustment-table').DataTable({
-                            // processing: true,
+                        const table = $('#schedule-adjustment-table').DataTable({
                             serverSide: true,
                             autoWidth: false,
-                            responsive: true,
-                            lengthChange: true, // only keep this
-                            lengthMenu: [10, 20, 50], // page length options
-                            pageLength: 50, // default rows per page
-                            dom: '<"flex justify-between items-center mb-4"Bf>rt<"flex justify-between items-center mt-4"lip>',
+                            responsive: {
+                                details: {
+                                    type: 'column',
+                                    target: 0
+                                }
+                            },
+                            lengthChange: true,
+                            lengthMenu: [10, 20, 50],
+                            pageLength: 50,
+                            dom: 'rt<"flex flex-wrap justify-between items-center gap-2 px-3 py-2 border-t border-gray-200 text-xs text-gray-600"lip>',
+                            search: {
+                                search: $('#sa-search').val() || ''
+                            },
+                            order: [
+                                [2, 'asc']
+                            ],
                             ajax: {
                                 url: "{{ route('schedule.adjustment') }}",
                                 data: function(d) {
                                     d.status = status;
                                     d.userRole = userRole;
                                     if (userRole === 'user') {
-                                        d.department =
-                                            departmentName; // only add department if user
+                                        d.department = departmentName;
                                     }
                                 }
                             },
-                            buttons: [{
-                                    extend: 'collection',
-                                    text: '<i class="fa fa-download mr-1 text-green-600"></i> Export',
-                                    className: 'flex items-center px-4 py-2 bg-white font-semibold rounded-lg shadow-sm border border-green-600 mt-3',
-                                    attr: {
-                                        style: 'border-color:#16a34a !important;'
-                                    },
-                                    buttons: [{
-                                            extend: 'copyHtml5',
-                                            text: '<i class="fa fa-copy mr-1 text-gray-700"></i> Copy',
-                                            className: 'bg-white text-black px-3 py-1 rounded hover:bg-gray-100 border border-gray-300'
-                                        },
-                                        {
-                                            extend: 'excelHtml5',
-                                            text: '<i class="fa fa-file-excel mr-1 text-green-600"></i> Excel',
-                                            className: 'bg-white text-black px-3 py-1 rounded hover:bg-green-50 border border-gray-300'
-                                        },
-                                        {
-                                            extend: 'csvHtml5',
-                                            text: '<i class="fa fa-file-csv mr-1 text-blue-600"></i> CSV',
-                                            className: 'bg-white text-black px-3 py-1 rounded hover:bg-blue-50 border border-gray-300'
-                                        },
-                                        {
-                                            extend: 'pdfHtml5',
-                                            text: '<i class="fa fa-file-pdf mr-1 text-red-600"></i> PDF',
-                                            className: 'bg-white text-black px-3 py-1 rounded hover:bg-red-50 border border-gray-300'
-                                        },
-                                        {
-                                            extend: 'print',
-                                            text: '<i class="fa fa-print mr-1 text-gray-700"></i> Print',
-                                            className: 'bg-white text-black px-3 py-1 rounded hover:bg-gray-100 border border-gray-300'
-                                        }
-                                    ]
-                                },
+                            drawCallback: function() {
+                                bulk_sa.syncSelectAll();
+                            },
+                            buttons: exportAndColumnButtons(),
+                            columns: [
+                                expandControlColumn,
+                                bulk_sa.checkboxColumn(),
                                 {
-                                    extend: 'colvis',
-                                    text: '<i class="fa fa-columns mr-1 text-green-600"></i> Columns',
-                                    className: 'flex items-center px-4 py-2 bg-white font-semibold rounded-lg shadow-sm border border-green-600 mt-3',
-                                    attr: {
-                                        style: 'border-color:#16a34a !important;'
-                                    },
-                                    columns: ':not(:last-child)',
-                                    columnText: function(dt, idx, title) {
-                                        const defaultTitles = [
-                                            'Employee Name',
-                                            'Department',
-                                            'Report To',
-                                            'Schedule',
-                                            'Others',
-                                            'Reason',
-                                            'Record Date',
-                                            'Status',
-                                            'Action'
-                                        ];
-                                        return defaultTitles[idx] ||
-                                            `Column ${idx + 1}`;
-                                    }
-                                }
-                            ],
-                            columns: [{
                                     data: 'employee_name',
                                     name: 'employee_name',
-                                    className: 'px-6 py-4 font-semibold text-gray-900 border-r border-gray-100'
-                                }, {
+                                    className: 'all',
+                                    render: function(data, type) {
+                                        return type === 'display' ? employeeNameCell(data) : data;
+                                    }
+                                },
+                                {
                                     data: 'department',
                                     name: 'department',
-                                    width: "5%",
-                                    render: function(data, type, row) {
-                                        if (!data || data.trim() === '' || data ===
-                                            'Not Assigned') {
-                                            return `<span class="px-2 py-1 text-xs font-semibold rounded-full bg-gray-300 text-gray-800">Not Assigned</span>`;
-                                        }
-
-                                        // Generate consistent color based on department name
-                                        const colors = [
-                                            'bg-blue-100 text-blue-800',
-                                            'bg-green-100 text-green-800',
-                                            'bg-yellow-100 text-yellow-800',
-                                            'bg-purple-100 text-purple-800',
-                                            'bg-pink-100 text-pink-800',
-                                            'bg-indigo-100 text-indigo-800',
-                                            'bg-red-100 text-red-800',
-                                            'bg-teal-100 text-teal-800'
-                                        ];
-
-                                        // Pick a color based on department name hash
-                                        const index = Math.abs([...data].reduce((sum,
-                                                c) => sum + c.charCodeAt(0), 0)) %
-                                            colors.length;
-                                        const colorClass = colors[index];
-
-                                        return `<span class="px-2 py-1 text-xs font-semibold rounded-full ${colorClass}">${data}</span>`;
+                                    render: function(data, type) {
+                                        return type === 'display' ? colorBadgeCell(data) : data;
                                     }
-                                }, {
+                                },
+                                {
                                     data: 'report_to',
                                     name: 'report_to',
-                                    width: "5%",
-                                    render: function(data, type, row) {
-                                        if (!data || data.trim() === '' || data ===
-                                            'Not Assigned') {
-                                            return `<span class="px-2 py-1 text-xs font-semibold rounded-full bg-gray-300 text-gray-800">Not Assigned</span>`;
-                                        }
-
-                                        // Generate consistent color based on report_to name
-                                        const colors = [
-                                            'bg-blue-100 text-blue-800',
-                                            'bg-green-100 text-green-800',
-                                            'bg-yellow-100 text-yellow-800',
-                                            'bg-purple-100 text-purple-800',
-                                            'bg-pink-100 text-pink-800',
-                                            'bg-indigo-100 text-indigo-800',
-                                            'bg-red-100 text-red-800',
-                                            'bg-teal-100 text-teal-800'
-                                        ];
-
-                                        // Pick a color based on string hash
-                                        const index = Math.abs([...data].reduce((sum,
-                                                c) => sum + c.charCodeAt(0), 0)) %
-                                            colors.length;
-                                        const colorClass = colors[index];
-
-                                        return `<span class="px-2 py-1 text-xs font-semibold rounded-full ${colorClass}">${data}</span>`;
+                                    render: function(data, type) {
+                                        return type === 'display' ? colorBadgeCell(data) : data;
                                     }
                                 },
                                 {
                                     data: 'schedule',
-                                    name: 'schedule',
-                                    className: 'px-6 py-4 text-gray-900 border-r border-gray-100'
+                                    name: 'schedule'
                                 },
                                 {
                                     data: 'others',
-                                    name: 'others',
-                                    className: 'px-6 py-4 text-gray-700 border-r border-gray-100 font-semibold'
+                                    name: 'others'
                                 },
                                 {
                                     data: 'reason',
-                                    name: 'reason',
-                                    className: 'px-6 py-4 text-gray-700 border-r border-gray-100 font-semibold'
+                                    name: 'reason'
                                 },
                                 {
                                     data: 'record_date',
                                     name: 'record_date',
-                                    className: 'px-6 py-4 text-sm text-gray-800 border-r border-gray-100 text-center',
-                                    render: function(data) {
-                                        if (!data) return '';
-                                        // Keep only the date part before the space
-                                        return data.split(' ')[0];
-                                    }
+                                    render: dateOnlyCell
                                 },
                                 {
                                     data: 'approval_status',
                                     name: 'approval_status',
-                                    className: 'px-6 py-4 text-center text-gray-800 font-semibold',
-                                    render: function(data) {
-                                        let badgeClass = '';
-                                        if (data === 'Pending') badgeClass =
-                                            'bg-yellow-100 text-yellow-800';
-                                        else if (data === 'Approved') badgeClass =
-                                            'bg-green-100 text-green-800';
-                                        else badgeClass = 'bg-red-100 text-red-800';
-
-                                        return `<span class="px-3 py-1 rounded-full text-sm font-semibold ${badgeClass}">${data}</span>`;
+                                    render: function(data, type) {
+                                        return type === 'display' ? statusBadgeCell(data) : data;
                                     }
                                 },
                                 {
                                     data: null,
                                     orderable: false,
                                     searchable: false,
-                                    className: 'px-6 py-4 text-center',
+                                    className: 'noVis all text-center',
                                     render: function(data, type, row) {
-                                        switch (row.approval_status) {
-                                            case 'Pending':
-                                                return `
-                                                <div class="flex justify-center space-x-2">
-                                                    <button onclick="approveScheduleAdjustment(${row.id})"
-                                                        class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-2 rounded-full shadow-md hover:shadow-lg transition">
-                                                        <i class="fas fa-check"></i>
-                                                    </button>
-                                                    <button onclick="cancelScheduleAdjustment(${row.id})"
-                                                        class="bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-full shadow-md hover:shadow-lg transition">
-                                                        <i class="fas fa-times"></i>
-                                                    </button>
-                                                </div>
-                                                    `;
-                                            case 'Approved':
-                                                return `
-                                                <div class="flex items-center justify-center space-x-2">
-                                                        <button onclick="cancelScheduleAdjustment(${row.id})"
-                                                            class="bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-full shadow-md hover:shadow-lg transition">
-                                                            <i class="fas fa-times"></i>
-                                                        </button>
-                                                    </div>
-                                                    `;
-                                            case 'Cancelled':
-                                                return `
-                                                    <div class="flex items-center justify-center space-x-2">
-                                                        <button onclick="handleRedo(${row.id})"
-                                                            class="bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-2 rounded-full shadow-md hover:shadow-lg transition">
-                                                            <i class="fas fa-undo"></i>
-                                                        </button>
-                                                    </div>`;
-                                            default:
-                                                return '';
-                                        }
+                                        return approvalActionButtons(row.approval_status, row.id, {
+                                            approve: 'approveScheduleAdjustment',
+                                            cancel: 'cancelScheduleAdjustment',
+                                            restore: 'handleRedo'
+                                        });
                                     }
                                 }
                             ],
                             language: {
-                                search: "_INPUT_",
-                                searchPlaceholder: "Search records...",
+                                emptyTable: "No records available",
                                 info: "Showing _START_ to _END_ of _TOTAL_ entries",
+                                lengthMenu: "Rows per page _MENU_",
                                 paginate: {
                                     first: "First",
                                     last: "Last",
                                     next: "Next",
                                     previous: "Previous"
                                 }
-                            },
-                            pageLength: 10,
-                            initComplete: function() {
-                                this.api().columns().every(function() {
-                                    var column = this;
-                                    $('input', column.header()).on(
-                                        'keyup change clear',
-                                        function() {
-                                            if (column.search() !== this
-                                                .value) {
-                                                column.search(this.value)
-                                                    .draw();
-                                            }
-                                        });
-                                });
                             }
                         });
-
-                        // Fix header alignment after initialization
-                        table.columns.adjust().draw();
+                        table.buttons().container().appendTo('#sa-toolbar-buttons');
                     }, 150);
                 },
                 error: function(xhr, status, error) {

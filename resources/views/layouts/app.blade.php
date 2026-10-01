@@ -86,6 +86,10 @@
         width: 0;
     }
 
+    [x-cloak] {
+        display: none !important;
+    }
+
     @keyframes load {
         0% {
             width: 0;
@@ -97,7 +101,7 @@
     }
 </style>
 
-<body class="font-sans antialiased">
+<body class="font-sans antialiased" x-data="{ sidebarOpen: false }" @keydown.escape.window="sidebarOpen = false">
     <!-- 🌟 Global Loading Screen -->
     <div id="page-loader"
         class="fixed inset-0 bg-white flex flex-col items-center justify-center z-50 transition-opacity duration-500">
@@ -116,9 +120,9 @@
         </div>
     </div>
 
-    <div class="min-h-screen flex flex-col">
-        {{-- Navigation --}}
-        @include('layouts.navigation')
+    <div class="min-h-screen flex flex-col lg:pl-64">
+        {{-- Sidebar navigation (fixed) + mobile top bar + loaded-data banner --}}
+        @include('layouts.sidebar')
 
         {{-- Page Heading --}}
         @if (isset($header))

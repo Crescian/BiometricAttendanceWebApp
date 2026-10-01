@@ -116,54 +116,55 @@
             /* darker green on hover */
         }
     </style>
-    <div class="px-16 py-5">
+    <x-approval-table-assets />
+    <div class="px-2 lg:px-4">
 
         <div class="loader-overlay" id="loaderOverlay">
             <div class="loader"></div>
         </div>
 
-        <!-- Table Section inside Card -->
-        <div class="p-6">
-            <div class="bg-white shadow-lg rounded-lg border border-gray-200">
-                <!-- Card Header -->
-                <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-                    <h2 class="font-bold text-3xl">
-                        <i class="fa-regular fa-clone text-3xl" style="color: #8DE11A; font-size: 40px"></i>
-                        {{ __('Attendance Record') }}
-                    </h2>
-
-                    <div class="flex items-center space-x-3">
-                    @if ((Auth::user()->role ?? '') === 'admin')
-                        <button onclick="openManualAttendanceModal();"
-                            class="flex items-center px-4 py-2 bg-green-600 text-white font-semibold rounded-lg shadow-sm hover:bg-green-700">
-                            <i class="fa-regular fa-clock mr-2"></i>
-                            Add Time In / Out
-                        </button>
-                    @endif
-                    </div>
+        <!-- Page header + toolbar -->
+        <div class="flex flex-wrap items-center justify-between gap-3 px-4 pt-4 pb-3">
+            <h1 class="text-xl font-semibold text-gray-900">{{ __('Attendance Records') }}</h1>
+            <div class="flex flex-wrap items-center gap-2">
+                @if ((Auth::user()->role ?? '') === 'admin')
+                    <button type="button" onclick="openManualAttendanceModal();"
+                        class="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-white bg-green-600 rounded-md hover:bg-green-700 shadow-sm">
+                        <i class="fa-regular fa-clock"></i>
+                        Add Time In / Out
+                    </button>
+                @endif
+                <div class="relative">
+                    <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i>
+                    <input id="ar-search" type="search" placeholder="Search"
+                        class="w-48 pl-8 pr-3 py-1.5 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500">
                 </div>
-                <!-- Table Section inside Card -->
-                <div class="p-6 text-gray-900">
-                    <div class="border rounded-lg shadow-sm overflow-hidden">
+                <div id="ar-toolbar-buttons" class="flex items-center gap-2"></div>
+            </div>
+        </div>
+
+        <!-- Table card -->
+        <div class="px-4 pb-4">
+            <div class="bg-white rounded-lg border border-gray-200 shadow-sm">
+                <div class="p-2 text-gray-900">
+                    <div class="border border-gray-200 rounded-md overflow-hidden">
                         <div class="overflow-x-auto">
-                            <table id="attendance-record-table" class="table-auto w-full text-sm">
-                                <thead class="text-white sticky top-0" style="background-color: #00291B;">
+                            <table id="attendance-record-table" class="modern-table w-full text-sm">
+                                <thead>
                                     <tr>
-                                        <th style="width: 10%">Employee Name</th>
-                                        <th style="width: 10%">Department</th>
-                                        <th style="width: 10%">Report To</th>
-                                        <th style="width: 10%">Schedule Shift</th>
-                                        <th style="width: 10%">Attendance Area</th>
-                                        {{-- <th style="width: 10%">Point Name</th>
-                                        <th style="width: 10%">Verification Mode</th> --}}
-                                        {{-- <th style="width: 10%">Attendance Photo</th> --}}
-                                        <th style="width: 10%">Record Date</th>
-                                        <th style="width: 8%">Earliest Time</th>
-                                        <th style="width: 8%">Latest Time</th>
-                                        <th style="width: 8%">Weekday</th>
-                                        <th style="width: 8%">Leaves</th>
+                                        <th class="noVis" style="width: 2rem;"></th>
+                                        <th>Employee</th>
+                                        <th>Department</th>
+                                        <th>Report To</th>
+                                        <th>Schedule Shift</th>
+                                        <th>Area</th>
+                                        <th>Date</th>
+                                        <th>Earliest Time</th>
+                                        <th>Latest Time</th>
+                                        <th>Weekday</th>
+                                        <th>Leaves</th>
                                         @if ((Auth::user()->role ?? '') === 'admin')
-                                            <th style="width: 6%">Action</th>
+                                            <th>Action</th>
                                         @endif
                                     </tr>
                                 </thead>
@@ -254,33 +255,42 @@
         $('#loaderOverlay').hide();
         loadEmployeeName();
         loadAttendanceRecord('Pending');
+        bindTableSearch('#ar-search', '#attendance-record-table');
 
         function loadAttendanceRecord(status = 'Pending') {
             if ($.fn.DataTable.isDataTable('#attendance-record-table')) {
                 $('#attendance-record-table').DataTable().clear().destroy();
             }
+            $('#ar-toolbar-buttons').empty();
 
             $.ajax({
                 url: "{{ route('department.getUserDepartment') }}",
                 type: 'GET',
                 dataType: 'json',
                 success: function(data) {
-                    let departmentName;
-                    if (!data.success) {
-                        departmentName = 'N/A';
-                    } else {
-                        departmentName = data.data.department_name;
-                    }
+                    let departmentName = !data.success ? 'N/A' : data.data.department_name;
+
                     setTimeout(() => {
-                        let table = $('#attendance-record-table').DataTable({
+                        const table = $('#attendance-record-table').DataTable({
                             processing: true,
                             serverSide: true,
                             autoWidth: false,
-                            responsive: true,
-                            lengthChange: true, // only keep this
-                            lengthMenu: [10, 20, 50], // page length options
-                            pageLength: 50, // default rows per page
-                            dom: '<"flex justify-between items-center mb-4"Bf>rt<"flex justify-between items-center mt-4"lip>',
+                            responsive: {
+                                details: {
+                                    type: 'column',
+                                    target: 0
+                                }
+                            },
+                            lengthChange: true,
+                            lengthMenu: [10, 20, 50],
+                            pageLength: 50,
+                            dom: 'rt<"flex flex-wrap justify-between items-center gap-2 px-3 py-2 border-t border-gray-200 text-xs text-gray-600"lip>',
+                            search: {
+                                search: $('#ar-search').val() || ''
+                            },
+                            order: [
+                                [1, 'asc']
+                            ],
                             ajax: {
                                 url: "{{ route('attendance-record.fetch') }}",
                                 data: function(d) {
@@ -290,181 +300,108 @@
                                     }
                                 }
                             },
-                            buttons: [{
-                                    extend: 'collection',
-                                    text: '<i class="fa fa-download mr-1 text-green-600"></i> Export',
-                                    className: 'flex items-center px-4 py-2 bg-white font-semibold rounded-lg shadow-sm border border-green-600 mt-3',
-                                    attr: {
-                                        style: 'border-color:#16a34a !important;'
-                                    },
-                                    buttons: [{
-                                            extend: 'copyHtml5',
-                                            text: '<i class="fa fa-copy mr-1 text-gray-700"></i> Copy'
-                                        },
-                                        {
-                                            extend: 'excelHtml5',
-                                            text: '<i class="fa fa-file-excel mr-1 text-green-600"></i> Excel'
-                                        },
-                                        {
-                                            extend: 'csvHtml5',
-                                            text: '<i class="fa fa-file-csv mr-1 text-blue-600"></i> CSV'
-                                        },
-                                        {
-                                            extend: 'pdfHtml5',
-                                            text: '<i class="fa fa-file-pdf mr-1 text-red-600"></i> PDF'
-                                        },
-                                        {
-                                            extend: 'print',
-                                            text: '<i class="fa fa-print mr-1 text-gray-700"></i> Print'
-                                        }
-                                    ]
-                                },
+                            buttons: exportAndColumnButtons(),
+                            columns: [
+                                expandControlColumn,
                                 {
-                                    extend: 'colvis',
-                                    text: '<i class="fa fa-columns mr-1 text-green-600"></i> Columns',
-                                    className: 'flex items-center px-4 py-2 bg-white font-semibold rounded-lg shadow-sm border border-green-600 mt-3',
-                                    attr: {
-                                        style: 'border-color:#16a34a !important;'
-                                    },
-                                    columns: ':not(:last-child)',
-                                    columnText: function(dt, idx, title) {
-                                        const titles = [
-                                            'Employee Name', 'Department',
-                                            'Report To',
-                                            'Schedule', 'Attendance Area',
-                                            'Point Name',
-                                            'Verification Mode', 'Record Date',
-                                            'Earliest Time', 'Latest Time',
-                                            'Weekday', 'Action'
-                                        ];
-                                        return titles[idx] || `Column ${idx + 1}`;
-                                    }
-                                }
-                            ],
-                            columns: [{
                                     data: 'employee_name',
                                     name: 'employee_management.employee_name',
-                                    width: "10%"
+                                    className: 'all',
+                                    render: function(data, type) {
+                                        return type === 'display' ? employeeNameCell(data) : data;
+                                    }
                                 },
                                 {
                                     data: 'department',
                                     name: 'employee_management.department',
-                                    width: "8%"
+                                    render: function(data, type) {
+                                        return type === 'display' ? colorBadgeCell(data) : data;
+                                    }
                                 },
                                 {
                                     data: 'report_to',
                                     name: 'employee_management.report_to',
-                                    width: "8%"
+                                    render: function(data, type) {
+                                        return type === 'display' ? colorBadgeCell(data) : data;
+                                    }
                                 },
                                 {
                                     data: 'schedule_shift',
-                                    name: 'employee_management.schedule_shift',
-                                    width: "8%"
-                                }, {
+                                    name: 'employee_management.schedule_shift'
+                                },
+                                {
                                     data: 'attendance_area',
                                     name: 'attendance_records.attendance_area',
-                                    width: "10%",
                                     render: function(data, type, row) {
                                         if (data === 'COA') {
-                                            return '<span class="px-2 py-1 text-xs font-semibold text-white bg-green-600 rounded-full">COA</span>';
+                                            return '<span class="px-1.5 py-0.5 text-[11px] font-semibold text-white bg-green-600 rounded-full">COA</span>';
                                         } else if (data === 'MANUAL') {
-                                            return '<span class="px-2 py-1 text-xs font-semibold text-white bg-blue-600 rounded-full">MANUAL</span>';
+                                            return '<span class="px-1.5 py-0.5 text-[11px] font-semibold text-white bg-blue-600 rounded-full">MANUAL</span>';
                                         } else {
-                                            return `<span class="px-2 py-1 text-xs font-semibold text-gray-700 bg-gray-200 rounded-full">${data || ''}</span>`;
+                                            return `<span class="px-1.5 py-0.5 text-[11px] font-semibold text-gray-700 bg-gray-200 rounded-full">${data || ''}</span>`;
                                         }
                                     }
                                 },
-
-                                // {
-                                //     data: 'attendance_point_name',
-                                //     name: 'attendance_records.attendance_point_name',
-                                //     width: "10%"
-                                // },
-                                // {
-                                //     data: 'verification_mode',
-                                //     name: 'attendance_records.verification_mode',
-                                //     width: "8%"
-                                // },
                                 {
                                     data: 'record_date',
                                     name: 'attendance_records.record_date',
-                                    width: "8%",
-                                    render: function(data) {
-                                        if (!data) return '';
-                                        // Keep only the date part before the space
-                                        return data.split(' ')[0];
-                                    }
+                                    render: dateOnlyCell
                                 },
                                 {
                                     data: 'earliest_time',
                                     name: 'attendance_records.earliest_time',
-                                    width: "8%",
                                     render: renderEditedTime('original_earliest_time')
                                 },
                                 {
                                     data: 'latest_time',
                                     name: 'attendance_records.latest_time',
-                                    width: "8%",
                                     render: renderEditedTime('original_latest_time')
                                 },
                                 {
                                     data: 'weekday',
-                                    name: 'attendance_records.weekday',
-                                    width: "8%"
+                                    name: 'attendance_records.weekday'
                                 },
                                 {
                                     data: 'leaves',
                                     name: 'attendance_records.leaves',
-                                    width: "8%"
+                                    className: 'text-center',
+                                    render: function(data, type) {
+                                        const yes = data === true || data === 'true' || data === 1 || data === '1';
+                                        if (type !== 'display') return yes ? 'Yes' : 'No';
+                                        return yes ?
+                                            `<span class="px-1.5 py-0.5 text-[11px] font-semibold rounded-full bg-yellow-100 text-yellow-800">Yes</span>` :
+                                            `<span class="px-1.5 py-0.5 text-[11px] font-semibold rounded-full bg-gray-100 text-gray-600">No</span>`;
+                                    }
                                 },
                                 ...(userRole === 'admin' ? [{
                                     data: null,
                                     orderable: false,
                                     searchable: false,
-                                    width: "6%",
+                                    className: 'noVis all text-center',
                                     render: function(data, type, row) {
                                         return `
-                                    <div class="flex justify-center">
-                                        <button onclick='openManualAttendanceModal(${JSON.stringify(row).replace(/'/g, "&#39;")});'
-                                            class="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700">
-                                            Edit
-                                        </button>
-                                    </div>`;
+                                            <div class="flex items-center justify-center">
+                                                <button type="button" title="Edit time in / out" class="row-btn edit"
+                                                    onclick='openManualAttendanceModal(${JSON.stringify(row).replace(/'/g, "&#39;")});'>
+                                                    <i class="fas fa-pen"></i>
+                                                </button>
+                                            </div>`;
                                     }
-                                }] : []),
-                                // {
-                                //     data: null,
-                                //     orderable: false,
-                                //     searchable: false,
-                                //     width: "6%",
-                                //     render: function(data, type, row) {
-                                //         return `
-                                //     <div class="flex justify-center space-x-2">
-                                //         <button onclick="viewRecord(${row.id});"
-                                //             class="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700">
-                                //             View
-                                //         </button>
-                                //     </div>`;
-                                //     }
-                                // }
+                                }] : [])
                             ],
-                            initComplete: function() {
-                                this.api().columns().every(function() {
-                                    var column = this;
-                                    $('input', column.header()).on(
-                                        'keyup change clear',
-                                        function() {
-                                            if (column.search() !== this
-                                                .value) {
-                                                column.search(this.value)
-                                                    .draw();
-                                            }
-                                        });
-                                });
+                            language: {
+                                emptyTable: "No records available",
+                                info: "Showing _START_ to _END_ of _TOTAL_ entries",
+                                lengthMenu: "Rows per page _MENU_",
+                                paginate: {
+                                    first: "First",
+                                    last: "Last",
+                                    next: "Next",
+                                    previous: "Previous"
+                                }
                             }
                         });
-
-                        table.columns.adjust().draw();
+                        table.buttons().container().appendTo('#ar-toolbar-buttons');
                     }, 150);
                 },
                 error: function(xhr, status, error) {
@@ -472,8 +409,6 @@
                 }
             });
         }
-
-
 
         // Load initially
         // loadAttendanceRecord('Pending');
