@@ -136,11 +136,27 @@
                         <option value="nd">Night differential (ND)</option>
                         <option value="rd">Rest day / holiday</option>
                     </select>
-                    <label class="flex items-center gap-1 select-none" title="Hide days whose hours are all 00:00">
+                    <label class="flex items-center gap-1 select-none">
                         <input type="checkbox" id="ot-filter-hours" data-filter="with_hours" checked
                             class="rounded border-gray-300 text-green-600 focus:ring-green-500">
                         With hours only
                     </label>
+                    {{-- Explanation on hover / keyboard focus; outside the label so clicking it doesn't toggle the box --}}
+                    <span class="relative inline-flex group -ml-1">
+                        <i class="fa-solid fa-circle-info text-gray-400 hover:text-gray-600 group-focus-within:text-gray-600 cursor-help"
+                            tabindex="0" role="img" aria-label="What does With hours only do?"
+                            aria-describedby="ot-filter-hours-tip"></i>
+                        <span id="ot-filter-hours-tip" role="tooltip"
+                            class="invisible opacity-0 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100 transition-opacity absolute left-1/2 -translate-x-1/2 top-full mt-2 z-50 w-72 p-2.5 rounded-md bg-gray-900 text-white text-[11px] leading-snug font-normal shadow-lg">
+                            <strong class="block mb-1">With hours only</strong>
+                            Shows only days with OT, night differential or rest-day hours. Days where every
+                            hour column is 00:00 (nothing to approve) are hidden.
+                            <span class="block mt-1.5">Untick to see every attendance day. The tab counts and
+                            <em>Bulk approve</em> follow this setting.</span>
+                            <span class="block mt-1.5 text-gray-300">Hidden rows are not deleted. They still show
+                            Late, and reappear if their hours change.</span>
+                        </span>
+                    </span>
                 </x-table-filters>
 
                 <div class="p-2 text-gray-900">
