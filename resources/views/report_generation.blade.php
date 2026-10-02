@@ -413,6 +413,12 @@
                 console.log('No downloads allowed for this user.');
             }
 
+            // The payroll CSV export is admin-only (it has names and basic pay)
+            if (userRole !== 'admin') {
+                $('#loaderOverlay').hide();
+                return;
+            }
+
             $.ajax({
                 url: '{{ route('export.csv') }}',
                 type: 'GET',

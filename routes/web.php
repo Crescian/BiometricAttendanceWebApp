@@ -68,7 +68,8 @@ Route::middleware('auth')->group(function () {
     Route::post('/csv-import', [CsvimportController::class, 'importCSV'])->name('import.csv');
     Route::post('/upload-csv', [CsvimportController::class, 'uploadCSV'])->name('upload.csv');
     Route::post('/get-entry-dates', [CsvimportController::class, 'getDistinctEntryDates'])->name('report.fetch');
-    Route::get('/export-csv', [CsvimportController::class, 'exportCsv'])->name('export.csv');
+    // Payroll data (names, basic pay): admins only
+    Route::get('/export-csv', [CsvimportController::class, 'exportCsv'])->middleware('role:admin')->name('export.csv');
     Route::post('/save-overtime-json', [CsvimportController::class, 'saveOvertimeJson'])->name('export.saveOvertimeJson');
     Route::post('/save-custom-holiday-json', [CsvimportController::class, 'saveCustomHolidayJson'])->name('export.saveCustomHolidayJson');
 
@@ -177,45 +178,51 @@ Route::middleware('auth')->group(function () {
     Route::get('/attendance/summary', [AttendanceRecordController::class, 'getAttendanceSummary'])->name('attendance.summary');
 
 
-    Route::get('/download/converted-file', function () {
-        $path = \App\Services\AttendanceProcessor::reportPath('ConvertedFile.csv'); // correct filename
+    // Generated reports hold names and pay: admins only
+    Route::middleware('role:admin')->group(function () {
+        Route::get('/download/converted-file', function () {
+            $path = \App\Services\AttendanceProcessor::reportPath('ConvertedFile.csv'); // correct filename
 
-        if (!file_exists($path)) {
-            abort(404, 'File not found.');
-        }
+            if (!file_exists($path)) {
+                abort(404, 'File not found.');
+            }
 
-        return response()->download($path, 'ConvertedFile.csv', [
-            'Content-Type' => 'text/csv',
-        ]);
-    })->name('download.convertedfile');
-
-
-    Route::get('/download/payroll-file', function () {
-        $path = \App\Services\AttendanceProcessor::reportPath('payroll file.xlsx');
-
-        if (!file_exists($path)) {
-            abort(404, 'File not found.');
-        }
-
-        return response()->download($path, 'payroll file.xlsx', [
-            'Content-Type' => 'text/xlsx',
-        ]);
-    })->name('download.payrollfile');
+            return response()->download($path, 'ConvertedFile.csv', [
+                'Content-Type' => 'text/csv',
+            ]);
+        })->name('download.convertedfile');
 
 
-    Route::get('/download/report-dtr', function () {
-        $path = \App\Services\AttendanceProcessor::reportPath('reportdtr.xlsx');
+        Route::get('/download/payroll-file', function () {
+            $path = \App\Services\AttendanceProcessor::reportPath('payroll file.xlsx');
 
-        if (!file_exists($path)) {
-            abort(404, 'File not found.');
-        }
+            if (!file_exists($path)) {
+                abort(404, 'File not found.');
+            }
 
-        return response()->download($path, 'reportdtr.xlsx', [
-            'Content-Type' => 'text/xlsx',
-        ]);
-    })->name('download.reportdtr');
+            return response()->download($path, 'payroll file.xlsx', [
+                'Content-Type' => 'text/xlsx',
+            ]);
+        })->name('download.payrollfile');
+
+
+        Route::get('/download/report-dtr', function () {
+            $path = \App\Services\AttendanceProcessor::reportPath('reportdtr.xlsx');
+
+            if (!file_exists($path)) {
+                abort(404, 'File not found.');
+            }
+
+            return response()->download($path, 'reportdtr.xlsx', [
+                'Content-Type' => 'text/xlsx',
+            ]);
+        })->name('download.reportdtr');
+    });
 
     Route::get('/download/security', function () {
+        // Admins, plus the security account that report_generation.blade.php also lets download it.
+        abort_unless(auth()->user()->role === 'admin' || (int) auth()->id() === 7, 403, 'Unauthorized access.');
+
         // Written by SecurityReportService during report generation; absent when the
         // active batch has no SECURITY attendance.
         $path = \App\Services\AttendanceProcessor::reportPath('security.xlsx');

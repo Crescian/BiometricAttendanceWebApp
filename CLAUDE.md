@@ -107,6 +107,7 @@ php artisan serve
 ## Role-based access
 - `role:admin` — full access (organization settings, biometric data, CSV import)
 - `role:user` — restricted to own department's overtime, leave, schedule adjustments
+- Report downloads (`download.payrollfile`, `download.reportdtr`, `download.convertedfile`) and the payroll export (`export.csv`) are admin-only. `download.security` also allows user id 7, the security account, matching the check in `report_generation.blade.php`.
 
 ## Non-working days
 - Loaded from `custom_dates` table (populated by `AttendanceProcessor::calculateTotalNonWorkingDays()`)
