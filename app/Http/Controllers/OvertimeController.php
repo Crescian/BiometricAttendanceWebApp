@@ -89,6 +89,11 @@ class OvertimeController extends Controller
             // Sorting by employee keeps each employee's days in date order
             return DataTables::of($data)
                 ->orderColumn('last_name', 'last_name $1, first_name $1, record_date asc')
+                // The Employee column shows "LAST, FIRST": search the stored full name, so a pasted
+                // name (e.g. "BALONCIO, KATRINA MEDALLA") matches, comma included.
+                ->filterColumn('last_name', function ($query, $keyword) {
+                    $query->whereRaw('employee_name ILIKE ?', ['%'.addcslashes($keyword, '%_\\').'%']);
+                })
                 ->make(true);
         }
         return view('overtime.fetch');
