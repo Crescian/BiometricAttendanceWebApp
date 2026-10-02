@@ -19,11 +19,13 @@
     'optionsUrl',
     'approveByUrl',
     'onDone',                      // the page's counts loader, e.g. 'loadLeavesCounts'
+    'params' => null,              // optional: name of a global function returning extra request
+                                   // fields for "Bulk approve" (e.g. the page's filters)
 ])
 
 @php
     $instance = 'bulk_' . $prefix;
-    $config = compact('prefix', 'table', 'pending', 'one', 'many', 'approveUrl', 'optionsUrl', 'approveByUrl', 'onDone');
+    $config = compact('prefix', 'table', 'pending', 'one', 'many', 'approveUrl', 'optionsUrl', 'approveByUrl', 'onDone', 'params');
 @endphp
 
 <button type="button" id="{{ $prefix }}-bulk-by-btn" onclick="{{ $instance }}.openModal()"
@@ -203,11 +205,17 @@
                 },
 
                 // ===== Bulk approve by All / Department / Employee / Date =====
+                // Extra fields from the page (cfg.params names a global function), e.g. its filters
+                extraParams() {
+                    const fn = cfg.params ? window[cfg.params] : null;
+                    return typeof fn === 'function' ? (fn() || {}) : {};
+                },
+
                 openModal() {
                     el('bulk-modal').removeClass('hidden').addClass('flex');
                     el('bulk-summary').text('Loading…');
                     el('bulk-by-submit').prop('disabled', true).text('Approve');
-                    $.getJSON(cfg.optionsUrl, function(response) {
+                    $.getJSON(cfg.optionsUrl, self.extraParams(), function(response) {
                         self.options = response;
                         self.setMode(self.mode);
                     }).fail(function() {
@@ -323,11 +331,11 @@
                     $.ajax({
                         url: cfg.approveByUrl,
                         type: "POST",
-                        data: {
+                        data: Object.assign(self.extraParams(), {
                             by: self.mode,
                             value: value,
                             _token: "{{ csrf_token() }}"
-                        },
+                        }),
                         success: function(response) {
                             self.closeModal();
                             Swal.fire({

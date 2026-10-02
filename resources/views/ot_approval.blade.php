@@ -112,7 +112,7 @@
                 <x-bulk-approve prefix="ot" table="#overtime-table" title="overtime"
                     one="overtime record" many="overtime records" on-done="loadOvertimeCounts"
                     :approve-url="route('overtime.bulkApprove')" :options-url="route('overtime.bulkOptions')"
-                    :approve-by-url="route('overtime.bulkApproveBy')" />
+                    :approve-by-url="route('overtime.bulkApproveBy')" params="otBulkParams" />
                 <div class="relative">
                     <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i>
                     <input id="ot-search" type="search" placeholder="Search"
@@ -136,6 +136,11 @@
                         <option value="nd">Night differential (ND)</option>
                         <option value="rd">Rest day / holiday</option>
                     </select>
+                    <label class="flex items-center gap-1 select-none" title="Hide days whose hours are all 00:00">
+                        <input type="checkbox" id="ot-filter-hours" data-filter="with_hours" checked
+                            class="rounded border-gray-300 text-green-600 focus:ring-green-500">
+                        With hours only
+                    </label>
                 </x-table-filters>
 
                 <div class="p-2 text-gray-900">
@@ -285,6 +290,12 @@
 
         // Filter bar: date range, department, schedule and OT type
         const otFilterValues = initTableFilters('ot', '#overtime-table', "{{ route('overtime.filterOptions') }}");
+
+        // "With hours only" also applies to the tab counts and to Bulk approve
+        const otWithHours = () => ($('#ot-filter-hours').is(':checked') ? '1' : '');
+        window.otBulkParams = () => ({ with_hours: otWithHours() });
+        $('#ot-filter-hours').on('change', () => loadOvertimeCounts());
+        $('#ot-filter-clear').on('click', () => loadOvertimeCounts());
 
         loadOvertime('Pending');
         bindTableSearch('#ot-search', '#overtime-table');
@@ -674,7 +685,8 @@
                         type: "GET",
                         data: {
                             userRole: userRole,
-                            department: departmentName // only used if userRole = 'user'
+                            department: departmentName, // ignored: the server applies the department rule
+                            with_hours: otWithHours()
                         },
                         success: function(response) {
                             $('#pending-count').text(response.pending);

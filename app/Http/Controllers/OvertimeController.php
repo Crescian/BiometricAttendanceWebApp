@@ -105,10 +105,31 @@ class OvertimeController extends Controller
     /**
      * Restrict a query to the departments the current user heads (admins see everything).
      */
+    /** Hour columns of an overtime row ("HH:MM" strings). */
+    private const HOURS_COLUMNS = ['ord_ot', 'ord_nd', 'ord_nd_ot', 'rd', 'rd_ot', 'rd_nd', 'rd_nd_ot'];
+
+    /**
+     * "With hours only" (on by default on the Overtime page): leave out rows whose hours are all
+     * 00:00. Those rows stay in the database; they can gain hours when a time or schedule changes.
+     */
+    protected function withHoursOnly($query, Request $request)
+    {
+        if ($request->boolean('with_hours')) {
+            $query->where(function ($q) {
+                foreach (self::HOURS_COLUMNS as $column) {
+                    $q->orWhereRaw("{$column} ~ '[1-9]'");
+                }
+            });
+        }
+
+        return $query;
+    }
+
     /** Overtime page filters: the shared date / department / schedule filters, plus OT type. */
     protected function applyFilters($query, Request $request)
     {
         $this->applyTableFilters($query, $request, 'record_date', 'department', 'schedule');
+        $this->withHoursOnly($query, $request);
 
         $request->validate(['ot_type' => ['nullable', 'in:ord_ot,nd,rd']]);
 
@@ -201,21 +222,21 @@ class OvertimeController extends Controller
     /**
      * Choices for "Bulk approve": pending counts per department, per employee and per date.
      */
-    public function bulkOptions()
+    public function bulkOptions(Request $request)
     {
-        $departments = $this->pendingScope()
+        $departments = $this->withHoursOnly($this->pendingScope(), $request)
             ->select('department as value', DB::raw('COUNT(*) as count'))
             ->groupBy('department')
             ->orderBy('department')
             ->get();
 
-        $employees = $this->pendingScope()
+        $employees = $this->withHoursOnly($this->pendingScope(), $request)
             ->select('employee_name as value', 'department', DB::raw('COUNT(*) as count'))
             ->groupBy('employee_name', 'department')
             ->orderBy('employee_name')
             ->get();
 
-        $dates = $this->pendingScope()
+        $dates = $this->withHoursOnly($this->pendingScope(), $request)
             ->select(DB::raw("TO_CHAR(record_date, 'YYYY-MM-DD') as value"), DB::raw('COUNT(*) as count'))
             ->groupBy(DB::raw("TO_CHAR(record_date, 'YYYY-MM-DD')"))
             ->orderBy('value')
@@ -223,7 +244,7 @@ class OvertimeController extends Controller
 
         return response()->json([
             'success'     => true,
-            'total'       => $this->pendingScope()->count(),
+            'total'       => $this->withHoursOnly($this->pendingScope(), $request)->count(),
             'departments' => $departments,
             'employees'   => $employees,
             'dates'       => $dates,
@@ -244,7 +265,8 @@ class OvertimeController extends Controller
             $request->validate(['value' => ['date_format:Y-m-d']]);
         }
 
-        $query = $this->pendingScope();
+        // Same rows as the table and the bulk options ("With hours only")
+        $query = $this->withHoursOnly($this->pendingScope(), $request);
         match ($validated['by']) {
             'all'        => null,
             'department' => $query->where('department', $validated['value']),
@@ -473,18 +495,13 @@ class OvertimeController extends Controller
 
     public function getOvertimeCounts(Request $request)
     {
-        $userRole = $request->get('userRole', 'user'); // get user role from AJAX
-        $department = $request->get('department', null); // get department name
         $biometricImportId = $this->biometricHistoryList->getLoadedRecordId();
 
-
-        // Base query
+        // Base query: the rows this user may see (non-admins: departments they head),
+        // counted the way the table lists them ("With hours only")
         $query = Overtime::query();
-
-        // 👤 If user, filter by department
-        if ($userRole === 'user' && $department) {
-            $query->where('department', $department);
-        }
+        $this->restrictToOwnDepartments($query);
+        $this->withHoursOnly($query, $request);
 
         if (!empty($biometricImportId)) {
             $query->where('biometric_imports_id', $biometricImportId);

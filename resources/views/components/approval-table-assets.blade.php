@@ -359,8 +359,15 @@
             };
 
             bar.on('change', '[data-filter]', reload);
+            // Clear goes back to each control's default (a checkbox to its initial state)
             $('#' + prefix + '-filter-clear').on('click', function() {
-                bar.find('[data-filter]').val('');
+                bar.find('[data-filter]').each(function() {
+                    if (this.type === 'checkbox') {
+                        this.checked = this.defaultChecked;
+                    } else {
+                        $(this).val('');
+                    }
+                });
                 reload();
             });
 
@@ -380,7 +387,9 @@
             return function() {
                 const values = {};
                 bar.find('[data-filter]').each(function() {
-                    values[$(this).data('filter')] = $(this).val();
+                    values[$(this).data('filter')] = this.type === 'checkbox'
+                        ? (this.checked ? '1' : '')
+                        : $(this).val();
                 });
                 return values;
             };
