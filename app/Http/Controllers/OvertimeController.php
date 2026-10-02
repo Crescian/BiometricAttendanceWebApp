@@ -9,11 +9,14 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Yajra\DataTables\Facades\DataTables;
 use App\Models\BiometricHistoryList;
+use App\Http\Controllers\Concerns\FiltersTables;
 use App\Services\ComputationService;
 use Illuminate\Support\Facades\DB;
 
 class OvertimeController extends Controller
 {
+    use FiltersTables;
+
     protected $biometricHistoryList;
 
     public function __construct(BiometricHistoryList $biometricHistoryList)
@@ -102,29 +105,12 @@ class OvertimeController extends Controller
     /**
      * Restrict a query to the departments the current user heads (admins see everything).
      */
-    /** Overtime page filters: date range, department, schedule and OT type (all optional). */
+    /** Overtime page filters: the shared date / department / schedule filters, plus OT type. */
     protected function applyFilters($query, Request $request)
     {
-        $request->validate([
-            'date_from' => ['nullable', 'date'],
-            'date_to' => ['nullable', 'date'],
-            'filter_department' => ['nullable', 'string', 'max:100'],
-            'filter_schedule' => ['nullable', 'string', 'max:100'],
-            'ot_type' => ['nullable', 'in:ord_ot,nd,rd'],
-        ]);
+        $this->applyTableFilters($query, $request, 'record_date', 'department', 'schedule');
 
-        if ($request->filled('date_from')) {
-            $query->whereRaw('record_date::date >= ?', [$request->date_from]);
-        }
-        if ($request->filled('date_to')) {
-            $query->whereRaw('record_date::date <= ?', [$request->date_to]);
-        }
-        if ($request->filled('filter_department')) {
-            $query->where('department', $request->filter_department);
-        }
-        if ($request->filled('filter_schedule')) {
-            $query->where('schedule', $request->filter_schedule);
-        }
+        $request->validate(['ot_type' => ['nullable', 'in:ord_ot,nd,rd']]);
 
         // Hours are "HH:MM" strings: a value has hours when it contains a non-zero digit
         $columns = [
@@ -146,31 +132,17 @@ class OvertimeController extends Controller
     /** Choices for the Overtime page filters: departments, schedules and the date range of the loaded import. */
     public function filterOptions()
     {
-        $scope = fn () => $this->restrictToOwnDepartments(
-            Overtime::where('biometric_imports_id', $this->biometricHistoryList->getLoadedRecordId())
-        );
-
-        $range = $scope()->selectRaw('MIN(record_date)::date AS min_date, MAX(record_date)::date AS max_date')->first();
-
-        return response()->json([
-            'departments' => $scope()->whereNotNull('department')->where('department', '<>', '')
-                ->distinct()->orderBy('department')->pluck('department'),
-            // By start hour, then end hour ("6-15" before "7-16" before "20-5")
-            'schedules' => $scope()->whereNotNull('schedule')->where('schedule', '<>', '')
-                ->distinct()->pluck('schedule')
-                ->sortBy(fn ($s) => array_map('intval', explode('-', $s) + [0, 0]))->values(),
-            'min_date' => $range->min_date ?? null,
-            'max_date' => $range->max_date ?? null,
-        ]);
+        return response()->json($this->tableFilterOptions(
+            fn () => $this->restrictToOwnDepartments(
+                Overtime::where('biometric_imports_id', $this->biometricHistoryList->getLoadedRecordId())
+            ),
+            'record_date', 'department', 'schedule'
+        ));
     }
 
     protected function restrictToOwnDepartments($query)
     {
-        if ((Auth::user()->role ?? '') !== 'admin') {
-            $query->whereIn('department', Department::where('department_head', Auth::id())->pluck('department_name'));
-        }
-
-        return $query;
+        return $this->restrictToHeadedDepartments($query, 'department');
     }
 
     /**

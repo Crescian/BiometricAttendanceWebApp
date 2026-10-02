@@ -129,31 +129,14 @@
                 <x-status-tabs loader="loadOvertime" />
 
                 <!-- Filters (combine with the status tab and search) -->
-                <div id="ot-filters" class="flex flex-wrap items-center gap-2 px-3 pt-2 text-xs text-gray-600">
-                    <i class="fa-solid fa-filter text-gray-400"></i>
-                    <label class="flex items-center gap-1">From
-                        <input id="ot-filter-from" type="date" class="px-2 py-1.5 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500">
-                    </label>
-                    <label class="flex items-center gap-1">To
-                        <input id="ot-filter-to" type="date" class="px-2 py-1.5 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500">
-                    </label>
-                    <select id="ot-filter-department" class="px-2 py-1.5 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 hidden" aria-label="Department">
-                        <option value="">All departments</option>
-                    </select>
-                    <select id="ot-filter-schedule" class="w-40 px-2 py-1.5 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 hidden" aria-label="Schedule">
-                        <option value="">All schedules</option>
-                    </select>
-                    <select id="ot-filter-type" class="px-2 py-1.5 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500" aria-label="OT type">
+                <x-table-filters prefix="ot" schedule>
+                    <select id="ot-filter-type" data-filter="ot_type" class="px-2 py-1.5 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500" aria-label="OT type">
                         <option value="">All OT types</option>
                         <option value="ord_ot">Ordinary OT</option>
                         <option value="nd">Night differential (ND)</option>
                         <option value="rd">Rest day / holiday</option>
                     </select>
-                    <button id="ot-filter-clear" type="button"
-                        class="px-2 py-1.5 text-xs text-gray-700 bg-gray-100 border border-gray-300 rounded-md hover:bg-gray-200">
-                        Clear
-                    </button>
-                </div>
+                </x-table-filters>
 
                 <div class="p-2 text-gray-900">
                     <div class="border border-gray-200 rounded-md overflow-hidden">
@@ -300,47 +283,11 @@
         const userId = "{{ Auth::user()->id ?? '' }}";
         const userRole = "{{ Auth::user()->role ?? '' }}";
 
+        // Filter bar: date range, department, schedule and OT type
+        const otFilterValues = initTableFilters('ot', '#overtime-table', "{{ route('overtime.filterOptions') }}");
+
         loadOvertime('Pending');
         bindTableSearch('#ot-search', '#overtime-table');
-        loadOvertimeFilterOptions();
-
-        // ---- Filters: date range, department, OT type
-        function otFilterValues() {
-            return {
-                date_from: $('#ot-filter-from').val(),
-                date_to: $('#ot-filter-to').val(),
-                filter_department: $('#ot-filter-department').val(),
-                filter_schedule: $('#ot-filter-schedule').val(),
-                ot_type: $('#ot-filter-type').val()
-            };
-        }
-
-        function reloadOvertimeTable() {
-            if ($.fn.DataTable.isDataTable('#overtime-table')) {
-                $('#overtime-table').DataTable().ajax.reload();
-            }
-        }
-
-        $('#ot-filters').on('change', 'input, select', reloadOvertimeTable);
-        $('#ot-filter-clear').on('click', function() {
-            $('#ot-filters').find('input, select').val('');
-            reloadOvertimeTable();
-        });
-
-        // Departments and dates of the loaded import (only the departments this user may see)
-        function loadOvertimeFilterOptions() {
-            $.getJSON("{{ route('overtime.filterOptions') }}", function(r) {
-                const select = $('#ot-filter-department');
-                (r.departments || []).forEach(name => select.append($('<option>').val(name).text(name)));
-                // A department head with a single department has nothing to choose
-                select.toggleClass('hidden', (r.departments || []).length < 2);
-
-                const schedules = $('#ot-filter-schedule');
-                (r.schedules || []).forEach(name => schedules.append($('<option>').val(name).text(name)));
-                schedules.toggleClass('hidden', (r.schedules || []).length < 2);
-                $('#ot-filter-from, #ot-filter-to').attr({ min: r.min_date || null, max: r.max_date || null });
-            });
-        }
 
         function loadOvertime(status = 'Pending') {
             bulk_ot.setStatus(status);

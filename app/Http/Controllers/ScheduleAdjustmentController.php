@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Controllers\Concerns\BulkApprovesRecords;
+use App\Http\Controllers\Concerns\FiltersTables;
 use App\Models\ScheduleAdjustment;
 use Illuminate\Http\Request;
 use Yajra\DataTables\Facades\DataTables;
@@ -17,7 +18,7 @@ use Illuminate\Support\Facades\Log;
 
 class ScheduleAdjustmentController extends Controller
 {
-    use BulkApprovesRecords;
+    use BulkApprovesRecords, FiltersTables;
 
     protected $biometricHistoryList;
 
@@ -300,6 +301,20 @@ class ScheduleAdjustmentController extends Controller
             ], 500);
         }
     }
+
+    /** Choices for the page's filter bar: departments, schedules and dates of the loaded import. */
+    public function filterOptions()
+    {
+        return response()->json($this->tableFilterOptions(
+            fn () => $this->restrictToHeadedDepartments(
+                ScheduleAdjustment::join('employee_management', 'employee_management.id', '=', 'schedule_adjustments.employee_management_id')
+                    ->when($this->biometricHistoryList->getLoadedRecordId(), fn ($q, $id) => $q->where('schedule_adjustments.biometric_imports_id', $id)),
+                'employee_management.department'
+            ),
+            'schedule_adjustments.record_date', 'employee_management.department', 'schedule_adjustments.schedule'
+        ));
+    }
+
     /**
      * Display a listing of the resource.
      *
@@ -309,8 +324,6 @@ class ScheduleAdjustmentController extends Controller
     {
         if ($request->ajax()) {
             $status = $request->get('status', 'Pending');
-            $userRole = $request->get('userRole');
-            $department = $request->get('department');
             $biometricImportId = $this->biometricHistoryList->getLoadedRecordId();
 
             $data = ScheduleAdjustment::join('employee_management', 'employee_management.id', '=', 'schedule_adjustments.employee_management_id')
@@ -333,10 +346,11 @@ class ScheduleAdjustmentController extends Controller
                 // ✅ Filter by biometric_imports_id
                 ->when($biometricImportId, function ($query) use ($biometricImportId) {
                     $query->where('biometric_imports_id', $biometricImportId);
-                })
-                ->when($userRole === 'user' && $department, function ($query) use ($department) {
-                    $query->where('employee_management.department', $department);
                 });
+
+            // Rows the user may see (non-admins: departments they head), then the filter bar
+            $this->restrictToHeadedDepartments($data, 'employee_management.department');
+            $this->applyTableFilters($data, $request, 'schedule_adjustments.record_date', 'employee_management.department', 'schedule_adjustments.schedule');
 
             // Fixed order only when the table asks for none; otherwise DataTables applies the clicked column
             if (!$request->filled('order')) {

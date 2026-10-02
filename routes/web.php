@@ -100,6 +100,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/certificate-attendance-summary', [CertificateOfAttendanceController::class, 'getCertificateAttendanceSummary']);
     Route::get('/certificateOfAttendance', [CertificateOfAttendanceController::class, 'index'])->name('certificateOfAttendance.fetch');
     Route::get('/certificateOfAttendance/counts', [CertificateOfAttendanceController::class, 'getCertificateOfAttendanceCounts'])->name('certificateOfAttendance.counts');
+    Route::get('/certificateOfAttendance/filter-options', [CertificateOfAttendanceController::class, 'filterOptions'])->name('certificateOfAttendance.filterOptions');
     Route::post('/certificate-attendance/store', [CertificateOfAttendanceController::class, 'store'])->name('certificateOfAttendance.store');
     Route::post('/certificateOfAttendance/{id}/approved', [CertificateOfAttendanceController::class, 'approve'])->name('certificateOfAttendance.approve');
     Route::post('/certificateOfAttendance/{id}/cancelled', [CertificateOfAttendanceController::class, 'cancel'])->name('certificateOfAttendance.cancel');
@@ -111,6 +112,7 @@ Route::middleware('auth')->group(function () {
     ->name('schedule.status.summary');
     Route::get('/schedule-adjustment', [ScheduleAdjustmentController::class, 'index'])->name('schedule.adjustment');
     Route::get('/scheduleAdjustment/counts', [ScheduleAdjustmentController::class, 'getScheduleAdjustmentCounts'])->name('scheduleAdjustment.counts');
+    Route::get('/scheduleAdjustment/filter-options', [ScheduleAdjustmentController::class, 'filterOptions'])->name('scheduleAdjustment.filterOptions');
     Route::post('/scheduleAdjustment/store', [ScheduleAdjustmentController::class, 'store'])->name('scheduleAdjustment.store');
     Route::post('/scheduleAdjustment/{id}/approved', [ScheduleAdjustmentController::class, 'approve'])->name('scheduleAdjustment.approve');
     Route::post('/scheduleAdjustment/{id}/cancelled', [ScheduleAdjustmentController::class, 'cancel'])->name('scheduleAdjustment.cancel');
@@ -158,6 +160,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/leaves/status-summary', [LeaveController::class, 'getLeaveStatusSummary'])
     ->name('leaves.status.summary');
     Route::get('/leave/fetch', [LeaveController::class, 'index'])->name('leave.fetch');
+    Route::get('/leave/filter-options', [LeaveController::class, 'filterOptions'])->name('leave.filterOptions');
     Route::post('/leave/store', [LeaveController::class, 'store'])->name('leave.store');
     Route::get('/leave/counts', [LeaveController::class, 'getLeavesCounts'])->name('leave.counts');
     Route::post('/leave/{id}/approved', [LeaveController::class, 'approve'])->name('leave.approve');
@@ -167,6 +170,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/leave/bulk-approve-by', [LeaveController::class, 'bulkApproveBy'])->name('leave.bulkApproveBy');
 
     Route::get('/attendance-record/fetch', [AttendanceRecordController::class, 'index'])->name('attendance-record.fetch');
+    Route::get('/attendance-record/filter-options', [AttendanceRecordController::class, 'filterOptions'])->name('attendance-record.filterOptions');
     Route::get('/attendance/summary', [AttendanceRecordController::class, 'getAttendanceSummary'])->name('attendance.summary');
 
 

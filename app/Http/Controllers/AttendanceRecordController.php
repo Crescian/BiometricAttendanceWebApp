@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\BiometricHistoryList;
+use App\Http\Controllers\Concerns\FiltersTables;
 use App\Models\AttendanceRecord;
 use App\Services\ComputationService;
 use Illuminate\Http\Request;
@@ -13,6 +14,8 @@ use Illuminate\Support\Facades\DB;
 
 class AttendanceRecordController extends Controller
 {
+    use FiltersTables;
+
     protected $biometricHistoryList;
 
     public function __construct(BiometricHistoryList $biometricHistoryList)
@@ -54,13 +57,23 @@ class AttendanceRecordController extends Controller
         ]);
     }
 
+    /** Choices for the page's filter bar: departments, schedules and dates of the loaded import. */
+    public function filterOptions()
+    {
+        return response()->json($this->tableFilterOptions(
+            fn () => $this->restrictToHeadedDepartments(
+                AttendanceRecord::join('employee_management', 'employee_management.id', '=', 'attendance_records.employee_management_id')
+                    ->where('attendance_records.biometric_imports_id', $this->biometricHistoryList->getLoadedRecordId()),
+                'employee_management.department'
+            ),
+            'attendance_records.record_date', 'employee_management.department'
+        ));
+    }
 
     public function index(Request $request)
     {
         $biometricImportId = $this->biometricHistoryList->getLoadedRecordId();
         if ($request->ajax()) {
-            $userRole = $request->get('userRole');
-            $department = $request->get('department');
 
             // 🔹 Build query with join to employee_management
             $data = AttendanceRecord::join(
@@ -100,10 +113,9 @@ class AttendanceRecordController extends Controller
                 $data->orderBy('attendance_records.record_date', 'desc')->orderBy('employee_management.employee_name', 'asc');
             }
 
-            // ✅ Apply department filter if user is not admin
-            if ($userRole === 'user' && $department) {
-                $data->where('employee_management.department', $department);
-            }
+            // Rows the user may see (non-admins: departments they head), then the filter bar
+            $this->restrictToHeadedDepartments($data, 'employee_management.department');
+            $this->applyTableFilters($data, $request, 'attendance_records.record_date', 'employee_management.department');
 
             // ✅ Return data as DataTable JSON (sorting by employee keeps their days in date order)
             return DataTables::of($data)

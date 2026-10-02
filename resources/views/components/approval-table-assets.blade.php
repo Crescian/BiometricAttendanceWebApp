@@ -347,6 +347,45 @@
         }
 
         // Header search box drives a DataTable search (debounced)
+        // Filter bar of the table-filters component (by its prefix): reloads the table when a filter changes,
+        // fills the Department / Schedule choices and date limits from optionsUrl, and returns a
+        // function giving the current values to add to the table's ajax data.
+        function initTableFilters(prefix, tableSelector, optionsUrl) {
+            const bar = $('#' + prefix + '-filters');
+            const reload = function() {
+                if ($.fn.DataTable.isDataTable(tableSelector)) {
+                    $(tableSelector).DataTable().ajax.reload();
+                }
+            };
+
+            bar.on('change', '[data-filter]', reload);
+            $('#' + prefix + '-filter-clear').on('click', function() {
+                bar.find('[data-filter]').val('');
+                reload();
+            });
+
+            $.getJSON(optionsUrl, function(r) {
+                const fill = function(filter, values) {
+                    const select = bar.find('[data-filter="' + filter + '"]');
+                    (values || []).forEach(v => select.append($('<option>').val(v).text(v)));
+                    // Nothing to choose with a single value (e.g. a head of one department)
+                    select.toggleClass('hidden', (values || []).length < 2);
+                };
+                fill('filter_department', r.departments);
+                fill('filter_schedule', r.schedules);
+                bar.find('[data-filter="date_from"], [data-filter="date_to"]')
+                    .attr({ min: r.min_date || null, max: r.max_date || null });
+            });
+
+            return function() {
+                const values = {};
+                bar.find('[data-filter]').each(function() {
+                    values[$(this).data('filter')] = $(this).val();
+                });
+                return values;
+            };
+        }
+
         function bindTableSearch(inputSelector, tableSelector) {
             let timer;
             $(document).on('input', inputSelector, function() {

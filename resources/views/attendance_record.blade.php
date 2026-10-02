@@ -146,6 +146,8 @@
         <!-- Table card -->
         <div class="px-4 pb-4">
             <div class="bg-white rounded-lg border border-gray-200 shadow-sm">
+                <!-- Filters (combine with search) -->
+                <x-table-filters prefix="ar" />
                 <div class="p-2 text-gray-900">
                     <div class="border border-gray-200 rounded-md overflow-hidden">
                         <div class="overflow-x-auto">
@@ -254,6 +256,8 @@
         const userRole = "{{ Auth::user()->role ?? '' }}";
         $('#loaderOverlay').hide();
         loadEmployeeName();
+        // Filter bar: date range, department
+        const arFilterValues = initTableFilters('ar', '#attendance-record-table', "{{ route('attendance-record.filterOptions') }}");
         loadAttendanceRecord('Pending');
         bindTableSearch('#ar-search', '#attendance-record-table');
 
@@ -301,6 +305,7 @@
                                     if (userRole === 'user') {
                                         d.department = departmentName;
                                     }
+                                    Object.assign(d, arFilterValues());
                                 }
                             },
                             buttons: exportAndColumnButtons(),

@@ -168,6 +168,9 @@
                 <!-- Status filter -->
                 <x-status-tabs loader="loadCertificateOfAttendance" />
 
+                <!-- Filters (combine with the status tab and search) -->
+                <x-table-filters prefix="coa" schedule />
+
                 <div class="p-2 text-gray-900">
                     <div class="border border-gray-200 rounded-md overflow-hidden">
                         <div class="overflow-x-auto">
@@ -376,6 +379,8 @@
         const userRole = "{{ Auth::user()->role ?? '' }}";
         $('#loaderOverlay').hide();
         loadEmployeeName();
+        // Filter bar: date range, department, schedule
+        const coaFilterValues = initTableFilters('coa', '#certificate-attendance-table', "{{ route('certificateOfAttendance.filterOptions') }}");
         loadCertificateOfAttendance('Pending');
         bindTableSearch('#coa-search', '#certificate-attendance-table');
 
@@ -428,6 +433,7 @@
                                     if (userRole === 'user') {
                                         d.department = departmentName;
                                     }
+                                    Object.assign(d, coaFilterValues());
                                 }
                             },
                             drawCallback: function() {

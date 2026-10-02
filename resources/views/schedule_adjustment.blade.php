@@ -134,6 +134,9 @@
                 <!-- Status filter -->
                 <x-status-tabs loader="loadScheduleAdjustmentPage" />
 
+                <!-- Filters (combine with the status tab and search) -->
+                <x-table-filters prefix="sa" schedule />
+
                 <div class="p-2 text-gray-900">
                     <div class="border border-gray-200 rounded-md overflow-hidden">
                         <div class="overflow-x-auto">
@@ -421,6 +424,8 @@
         const userId = "{{ Auth::user()->id ?? '' }}";
         const userRole = "{{ Auth::user()->role ?? '' }}";
         $('#loaderOverlay').hide();
+        // Filter bar: date range, department, schedule
+        const saFilterValues = initTableFilters('sa', '#schedule-adjustment-table', "{{ route('scheduleAdjustment.filterOptions') }}");
         loadScheduleAdjustmentPage();
         bindTableSearch('#sa-search', '#schedule-adjustment-table');
         loadEmployeeName();
@@ -663,6 +668,7 @@
                                     if (userRole === 'user') {
                                         d.department = departmentName;
                                     }
+                                    Object.assign(d, saFilterValues());
                                 }
                             },
                             drawCallback: function() {

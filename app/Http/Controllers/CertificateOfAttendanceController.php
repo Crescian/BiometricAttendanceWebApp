@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Controllers\Concerns\BulkApprovesRecords;
+use App\Http\Controllers\Concerns\FiltersTables;
 use App\Models\AttendanceRecord;
 use App\Models\EmployeeManagement;
 use App\Models\CertificateOfAttendance;
@@ -18,7 +19,7 @@ use Illuminate\Support\Facades\Log;
 
 class CertificateOfAttendanceController extends Controller
 {
-    use BulkApprovesRecords;
+    use BulkApprovesRecords, FiltersTables;
 
     protected $biometricHistoryList;
 
@@ -221,6 +222,19 @@ class CertificateOfAttendanceController extends Controller
             ], 500);
         }
     }
+    /** Choices for the page's filter bar: departments, schedules and dates of the loaded import. */
+    public function filterOptions()
+    {
+        return response()->json($this->tableFilterOptions(
+            fn () => $this->restrictToHeadedDepartments(
+                CertificateOfAttendance::join('employee_management', 'employee_management.id', '=', 'certificate_attendance.employee_management_id')
+                    ->when($this->biometricHistoryList->getLoadedRecordId(), fn ($q, $id) => $q->where('certificate_attendance.biometric_imports_id', $id)),
+                'employee_management.department'
+            ),
+            'certificate_attendance.date', 'employee_management.department', 'employee_management.schedule'
+        ));
+    }
+
     /**
      * Display a listing of the resource.
      *
@@ -231,8 +245,6 @@ class CertificateOfAttendanceController extends Controller
     {
         if ($request->ajax()) {
             $status = $request->get('status', 'Pending');
-            $userRole = $request->get('userRole');
-            $department = $request->get('department');
             $biometricImportId = $this->biometricHistoryList->getLoadedRecordId();
 
             $data = CertificateOfAttendance::join(
@@ -266,10 +278,9 @@ class CertificateOfAttendanceController extends Controller
                 $data->where('certificate_attendance.biometric_imports_id', $biometricImportId);
             }
 
-            // ✅ Apply department filter if user is not admin
-            if ($userRole === 'user' && $department) {
-                $data->where('employee_management.department', $department);
-            }
+            // Rows the user may see (non-admins: departments they head), then the filter bar
+            $this->restrictToHeadedDepartments($data, 'employee_management.department');
+            $this->applyTableFilters($data, $request, 'certificate_attendance.date', 'employee_management.department', 'employee_management.schedule');
 
             return DataTables::of($data)
                 // Sorting by employee keeps their days in date order

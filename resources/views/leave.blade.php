@@ -168,6 +168,9 @@
                 <!-- Status filter -->
                 <x-status-tabs loader="loadLeaves" :values="['pending', 'approved', 'cancelled']" />
 
+                <!-- Filters (combine with the status tab and search) -->
+                <x-table-filters prefix="leave" />
+
                 <div class="p-2 text-gray-900">
                     <div class="border border-gray-200 rounded-md overflow-hidden">
                         <div class="overflow-x-auto">
@@ -354,6 +357,8 @@
         const userRole = "{{ Auth::user()->role ?? '' }}";
         $('#loaderOverlay').hide();
         loadEmployeeName();
+        // Filter bar: date range, department
+        const leaveFilterValues = initTableFilters('leave', '#leaves-table', "{{ route('leave.filterOptions') }}");
         loadLeaves('pending');
         bindTableSearch('#leave-search', '#leaves-table');
 
@@ -402,6 +407,7 @@
                                     if (userRole === 'user') {
                                         d.department = departmentName;
                                     }
+                                    Object.assign(d, leaveFilterValues());
                                 }
                             },
                             drawCallback: function() {
