@@ -111,6 +111,18 @@ php artisan serve
 - Philippine public holidays hardcoded for the current year
 - Custom holidays can be added via `CustomDateController`
 
+## Performance
+- Upload and payroll generation must not query per row. `ComputationService::buildContext()` preloads employees by name, schedule adjustments and non-working days; pass it as the optional `$context` to `autocalculateOrd()` / `autocalculateRdAndOvertime()` when computing many rows. Single-row callers (Overtime page, schedule approval) omit it and query as before.
+- Bulk writes go in chunks (`insert()` of 500), e.g. `insertAttendanceRecords()` and `flushOvertimes()`.
+- Measured on a half-month file (8,994 attendance rows): upload 63 s → 6.4 s, payroll breakdown 4.3 s → 0.35 s, with identical results.
+
+## Production settings (deploy checklist)
+- `APP_ENV=production`, `APP_DEBUG=false` (debug pages leak stack traces and config).
+- On every deploy, as www-data: `composer install --no-dev --optimize-autoloader`, `php artisan migrate --force`, `config:cache`, `route:cache`, `view:cache`.
+- OPcache: `opcache.validate_timestamps=0` (restart PHP-FPM on deploy), `opcache.memory_consumption=192`.
+- `CACHE_DRIVER=redis`, `SESSION_DRIVER=redis` (Redis runs as `attendance_redis`).
+- PHP-FPM: size `pm.max_children` to the server's RAM (about 60 MB per worker; the default is 5). `max_execution_time` of 120 gives large uploads a safety margin.
+
 ## Important conventions
 - All time fields (`ord_ot`, `rd`, `ord_nd`, etc.) are stored as `HH:MM` strings, not decimals
 - `employee_name` format is always `"LAST, FIRST"` (uppercase)

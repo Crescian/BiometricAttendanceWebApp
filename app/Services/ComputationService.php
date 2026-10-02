@@ -12,14 +12,20 @@ class ComputationService
      * Calculate ordinary day (ORD) overtime, night differential, and ND-OT hours.
      * Returns [ord_ot_hours, ord_nd_hours, ord_nd_ot_hours]
      */
-    public function autocalculateOrd($row, $non_working_days, $data, $engine, $conn, $biometric_imports_id): array
+    public function autocalculateOrd($row, $non_working_days, $data, $engine, $conn, $biometric_imports_id, ?array $context = null): array
     {
         try {
             $record_date = substr($row['record_date'], 0, 10);
 
-            $cleaned_nwd = array_map(fn($d) => trim(str_replace("'", "", $d)), $non_working_days);
-            if (in_array($record_date, $cleaned_nwd)) {
-                return [0, 0, 0];
+            if ($context !== null) {
+                if (isset($context['non_working'][$record_date])) {
+                    return [0, 0, 0];
+                }
+            } else {
+                $cleaned_nwd = array_map(fn($d) => trim(str_replace("'", "", $d)), $non_working_days);
+                if (in_array($record_date, $cleaned_nwd)) {
+                    return [0, 0, 0];
+                }
             }
 
             if (!empty($row['leaves'])) {
@@ -37,14 +43,12 @@ class ComputationService
             $employee_name = $row['employee_name'];
             $schedule = null;
 
-            $tempMatch = DB::table('schedule_adjustments')
-                ->join('employee_management', 'employee_management.id', '=', 'schedule_adjustments.employee_management_id')
-                ->where('employee_management.employee_name', $employee_name)
-                ->whereRaw("DATE(schedule_adjustments.record_date) = ?", [$record_date])
-                ->value('schedule_adjustments.schedule');
+            $tempMatch = $this->adjustedSchedule($employee_name, $record_date, $context);
 
             if ($tempMatch) {
                 $schedule = $tempMatch;
+            } elseif ($context !== null) {
+                $schedule = $this->field($context['employees_by_name'][$employee_name] ?? null, 'schedule');
             } else {
                 foreach ($data as $d) {
                     $name = is_array($d) ? ($d['employee_name'] ?? null) : ($d->employee_name ?? null);
@@ -92,7 +96,7 @@ class ComputationService
      * Only runs when record_date falls on a non-working day.
      * Returns ['rd', 'rd_ot', 'rd_nd', 'rd_nd_ot']
      */
-    public function autocalculateRdAndOvertime(array $row, $data): array
+    public function autocalculateRdAndOvertime(array $row, $data, ?array $context = null): array
     {
         $zero = ['rd' => 0, 'rd_ot' => 0, 'rd_nd' => 0, 'rd_nd_ot' => 0];
 
@@ -103,27 +107,31 @@ class ComputationService
                 return $zero;
             }
 
-            // Load non-working days from DB (not config)
-            $nonWorkingDays = DB::table('custom_dates')
-                ->pluck('record_date')
-                ->map(fn($d) => substr($d, 0, 10))
-                ->toArray();
+            // Load non-working days from DB (not config), unless preloaded
+            if ($context !== null) {
+                if (!isset($context['non_working'][$recordDate])) {
+                    return $zero;
+                }
+            } else {
+                $nonWorkingDays = DB::table('custom_dates')
+                    ->pluck('record_date')
+                    ->map(fn($d) => substr($d, 0, 10))
+                    ->toArray();
 
-            if (!in_array($recordDate, $nonWorkingDays)) {
-                return $zero;
+                if (!in_array($recordDate, $nonWorkingDays)) {
+                    return $zero;
+                }
             }
 
             $employee_name = $row['employee_name'];
             $schedule = null;
 
-            $tempMatch = DB::table('schedule_adjustments')
-                ->join('employee_management', 'employee_management.id', '=', 'schedule_adjustments.employee_management_id')
-                ->where('employee_management.employee_name', $employee_name)
-                ->whereRaw("DATE(schedule_adjustments.record_date) = ?", [$recordDate])
-                ->value('schedule_adjustments.schedule');
+            $tempMatch = $this->adjustedSchedule($employee_name, $recordDate, $context);
 
             if ($tempMatch) {
                 $schedule = $tempMatch;
+            } elseif ($context !== null) {
+                $schedule = $this->field($context['employees_by_name'][$employee_name] ?? null, 'schedule');
             } else {
                 if ($data instanceof \Illuminate\Support\Collection) {
                     $emp = $data->firstWhere('employee_name', $employee_name);
@@ -187,6 +195,68 @@ class ComputationService
             Log::error("autocalculateRdAndOvertime error: {$e->getMessage()}");
             return $zero;
         }
+    }
+
+    /**
+     * Lookups for computing many rows at once (upload, payroll), loaded in three queries instead of
+     * several per row. Pass the result as $context to autocalculateOrd()/autocalculateRdAndOvertime();
+     * the matches are the same as their per-row queries (first adjustment and first employee by name).
+     *
+     * @param iterable $employeeData the employee_management rows the caller passes as $data
+     */
+    public function buildContext(iterable $employeeData, ?string $start = null, ?string $end = null): array
+    {
+        $employeesByName = [];
+        foreach ($employeeData as $e) {
+            $name = $this->field($e, 'employee_name');
+            if ($name !== null && !array_key_exists($name, $employeesByName)) {
+                $employeesByName[$name] = $e;
+            }
+        }
+
+        $adjustments = [];
+        $rows = DB::table('schedule_adjustments as sa')
+            ->join('employee_management as em', 'em.id', '=', 'sa.employee_management_id')
+            ->when($start && $end, fn($q) => $q->whereRaw('DATE(sa.record_date) BETWEEN ? AND ?', [$start, $end]))
+            ->orderBy('sa.id')
+            ->get(['em.employee_name', 'sa.record_date', 'sa.schedule']);
+        foreach ($rows as $a) {
+            $key = $a->employee_name . '|' . substr((string) $a->record_date, 0, 10);
+            if (!array_key_exists($key, $adjustments)) {
+                $adjustments[$key] = $a->schedule;
+            }
+        }
+
+        $nonWorking = [];
+        foreach (DB::table('custom_dates')->pluck('record_date') as $d) {
+            $nonWorking[substr((string) $d, 0, 10)] = true;
+        }
+
+        return [
+            'employees_by_name' => $employeesByName,
+            'adjustments' => $adjustments,
+            'non_working' => $nonWorking,
+        ];
+    }
+
+    /** Schedule from an adjustment for this employee and day, from $context or the database. */
+    private function adjustedSchedule(string $employeeName, string $recordDate, ?array $context)
+    {
+        if ($context !== null) {
+            return $context['adjustments'][$employeeName . '|' . $recordDate] ?? null;
+        }
+
+        return DB::table('schedule_adjustments')
+            ->join('employee_management', 'employee_management.id', '=', 'schedule_adjustments.employee_management_id')
+            ->where('employee_management.employee_name', $employeeName)
+            ->whereRaw("DATE(schedule_adjustments.record_date) = ?", [$recordDate])
+            ->value('schedule_adjustments.schedule');
+    }
+
+    /** A field of an employee row given as an object or an array. */
+    private function field($row, string $key)
+    {
+        return is_array($row) ? ($row[$key] ?? null) : ($row->{$key} ?? null);
     }
 
     /**

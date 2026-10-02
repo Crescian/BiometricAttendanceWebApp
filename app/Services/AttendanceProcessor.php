@@ -424,23 +424,44 @@ class AttendanceProcessor
     protected function insertAttendanceRecords(array $records, int $biometricImportsId): array
     {
         $stats = ['inserted' => 0, 'skipped_duplicate' => 0, 'skipped_same_time' => 0, 'skipped_no_emp' => 0];
+
+        $normalizeDate = function (string $recordDate): string {
+            if (strpos($recordDate, '/') !== false) {
+                [$m, $d, $y] = explode('/', $recordDate);
+                return sprintf('%04d-%02d-%02d', $y, $m, $d);
+            }
+            return substr($recordDate, 0, 10);
+        };
+
         DB::beginTransaction();
         try {
+            // Employees by name (first match, as the former per-row lookup) and the employee-days
+            // already stored in this file's date range, so each row needs no query of its own.
+            $employeeIds = [];
+            foreach (DB::table('employee_management')->get(['id', 'employee_name']) as $e) {
+                $employeeIds[$e->employee_name] ??= $e->id;
+            }
+            $dates = array_map(fn ($row) => $normalizeDate((string) ($row['record_date'] ?? '')), $records);
+            $stored = [];
+            if ($dates) {
+                $existing = DB::table('attendance_records')
+                    ->whereRaw('DATE(record_date) BETWEEN ? AND ?', [min($dates), max($dates)])
+                    ->selectRaw('employee_management_id, DATE(record_date) AS d')
+                    ->get();
+                foreach ($existing as $x) {
+                    $stored[$x->employee_management_id . '|' . $x->d] = true;
+                }
+            }
+
+            $pending = [];
             foreach ($records as $row) {
                 $employeeName = $row['employee_name'] ?? null;
                 if (!$employeeName) continue;
 
-                $emp = DB::selectOne("SELECT id FROM employee_management WHERE employee_name = :name LIMIT 1", ['name' => $employeeName]);
-                if (!$emp) { $stats['skipped_no_emp']++; continue; }
-                $employee_management_id = $emp->id;
+                $employee_management_id = $employeeIds[$employeeName] ?? null;
+                if (!$employee_management_id) { $stats['skipped_no_emp']++; continue; }
 
-                $recordDate = $row['record_date'];
-                if (strpos($recordDate, '/') !== false) {
-                    [$m,$d,$y] = explode('/', $recordDate);
-                    $recordDate = sprintf('%04d-%02d-%02d', $y, $m, $d);
-                } else {
-                    $recordDate = substr($recordDate,0,10);
-                }
+                $recordDate = $normalizeDate((string) $row['record_date']);
 
                 $earliest = $row['earliest_time'] ?? '00:00:00';
                 $latest   = $row['latest_time'] ?? '00:00:00';
@@ -450,18 +471,11 @@ class AttendanceProcessor
 
                 // One record per employee per day across ALL imports: uploads may overlap,
                 // and the first stored record (with any edits/leaves on it) is kept.
-                $exists = DB::selectOne("
-                    SELECT 1 FROM attendance_records
-                    WHERE employee_management_id = :eid
-                      AND DATE(record_date) = :rdate
-                    LIMIT 1
-                ", [
-                    'eid' => $employee_management_id,
-                    'rdate' => $recordDate,
-                ]);
-                if ($exists) { $stats['skipped_duplicate']++; continue; }
+                $dayKey = $employee_management_id . '|' . $recordDate;
+                if (isset($stored[$dayKey])) { $stats['skipped_duplicate']++; continue; }
+                $stored[$dayKey] = true;
 
-                $id = DB::table('attendance_records')->insertGetId([
+                $pending[] = [
                     'employee_management_id' => $employee_management_id,
                     'attendance_area' => $row['Attendance Area'] ?? null,
                     'attendance_point_name' => $row['Attendance Point Name'] ?? null,
@@ -479,12 +493,14 @@ class AttendanceProcessor
                     'late_hours' => 0,
                     'late_minutes' => 0,
                     'leaves' => false,
-                ]);
-
+                ];
                 $stats['inserted']++;
 
-                // After insert: optional hook to compute OT/ND per row
-                // We'll compute summary OT for the biometric import later (calculateHoursForBiometricImport)
+                // OT/ND for the import is computed afterwards (calculateHoursForBiometricImport)
+            }
+
+            foreach (array_chunk($pending, 500) as $chunk) {
+                DB::table('attendance_records')->insert($chunk);
             }
 
             DB::commit();
@@ -542,10 +558,29 @@ class AttendanceProcessor
 
         if (empty($rows)) return;
 
-        // Preload custom_dates (non-working days)
+        // Preload custom_dates (non-working days), employees, schedule adjustments and the
+        // import's existing overtime/security rows, so no row needs a query to look them up.
         $customDates = DB::table('custom_dates')->pluck('record_date')->map(fn($d) => substr($d,0,10))->toArray();
         $computation  = new ComputationService();
         $employeeData = DB::table('employee_management')->get()->toArray();
+        $employees    = collect($employeeData);
+        $context      = $computation->buildContext($employeeData);
+        $lookups      = [
+            'employees_by_name' => $context['employees_by_name'],
+            'non_working'       => $context['non_working'],
+            'overtimes'         => DB::table('overtimes')->where('biometric_imports_id', $biometricImportsId)
+                ->orderBy('id')->get(['id', 'employee_name', 'record_date', 'type'])
+                ->reduce(function ($map, $o) {
+                    $map[$this->overtimeKey($o->employee_name, (string) $o->record_date, $o->type)] ??= $o->id;
+                    return $map;
+                }, []),
+            'security'          => DB::table('security_attendance')->where('biometric_imports_id', $biometricImportsId)
+                ->orderBy('id')->get(['id', 'employee_management_id', 'record_date', 'earliest_time', 'latest_time'])
+                ->reduce(function ($map, $x) use ($biometricImportsId) {
+                    $map[$this->securityKey($x->employee_management_id, (string) $x->record_date, $x->earliest_time, $x->latest_time, $biometricImportsId)] ??= $x->id;
+                    return $map;
+                }, []),
+        ];
 
         foreach ($rows as $r) {
             try {
@@ -563,7 +598,7 @@ class AttendanceProcessor
                         else $seconds = ($latest + 24*3600) - $earliest; // next day
                         $hours = max(($seconds / 3600.0) - 1.0, 0); // subtract 1 hour break (mirrors python default)
                         // some schedules do not subtract break (like 15-23 etc); for simplicity, check schedule briefly
-                        $empSchedule = DB::table('employee_management')->where('employee_name', $r->employee_name)->value('schedule');
+                        $empSchedule = $lookups['employees_by_name'][$r->employee_name]->schedule ?? null;
                         if (in_array($empSchedule, ['15-23','23-7'])) {
                             // do not subtract 1 hr
                             $hours = $seconds / 3600.0;
@@ -574,16 +609,16 @@ class AttendanceProcessor
 
                 // Insert/update security_attendance if department is Security
                 if (strtolower(trim($r->department ?? '')) === 'security') {
-                    $this->logSecurityAttendance($r, 'hours_worked', round($hoursWorked));
+                    $this->logSecurityAttendance($r, 'hours_worked', round($hoursWorked), null, null, $lookups);
                 }
 
                 // OT / ND by the overtime rules (ComputationService), the same calculation used when
                 // a time is edited or a record is approved, so the Overtime page starts out correct.
                 $rowArr = (array) $r;
                 [$ordOt, $ordNd, $ordNdOt] = $computation->autocalculateOrd(
-                    $rowArr, $customDates, $employeeData, null, null, $r->biometric_imports_id
+                    $rowArr, $customDates, $employeeData, null, null, $r->biometric_imports_id, $context
                 );
-                $rd = $computation->autocalculateRdAndOvertime($rowArr, collect($employeeData));
+                $rd = $computation->autocalculateRdAndOvertime($rowArr, $employees, $context);
 
                 // Insert into overtimes table or update existing (mimics log_overtime_to_db behavior)
                 $this->logOrUpdateOvertime($r, [
@@ -596,12 +631,14 @@ class AttendanceProcessor
                     'rd_nd_ot' => $rd['rd_nd_ot'],
                     'biometric_imports_id' => $r->biometric_imports_id,
                     'attendance_records_id' => $r->id
-                ]);
+                ], $lookups);
 
             } catch (\Throwable $e) {
                 Log::error("calculateHoursForBiometricImport row failed: ".$e->getMessage());
             }
         }
+
+        $this->flushOvertimes($lookups);
     }
 
     /**
@@ -623,7 +660,7 @@ class AttendanceProcessor
     /**
      * Insert or update overtimes (mimics Python log_overtime_to_db)
      */
-    protected function logOrUpdateOvertime($attendanceRow, array $computed)
+    protected function logOrUpdateOvertime($attendanceRow, array $computed, ?array &$lookups = null)
     {
         $employeeName = $attendanceRow->employee_name ?? null;
         $recordDate = substr($attendanceRow->record_date,0,10);
@@ -632,11 +669,17 @@ class AttendanceProcessor
         $attendance_records_id  = $computed['attendance_records_id'] ?? $attendanceRow->id;
 
         // check duplicate by employee_name, record_date, type, biometric_imports_id
-        $exists = DB::selectOne("
-            SELECT id, rd, rd_ot, rd_nd, rd_nd_ot FROM overtimes
-            WHERE employee_name = :ename AND record_date = :rdate AND type = :type AND biometric_imports_id = :bid
-            LIMIT 1
-        ", ['ename' => $employeeName, 'rdate' => $recordDate, 'type' => $type, 'bid' => $biometric_imports_id]);
+        // ($lookups holds this import's overtimes, preloaded by calculateHoursForBiometricImport)
+        $overtimeKey = $this->overtimeKey($employeeName, $recordDate, $type);
+        if ($lookups !== null) {
+            $exists = isset($lookups['overtimes'][$overtimeKey]) ? (object) ['id' => $lookups['overtimes'][$overtimeKey]] : null;
+        } else {
+            $exists = DB::selectOne("
+                SELECT id, rd, rd_ot, rd_nd, rd_nd_ot FROM overtimes
+                WHERE employee_name = :ename AND record_date = :rdate AND type = :type AND biometric_imports_id = :bid
+                LIMIT 1
+            ", ['ename' => $employeeName, 'rdate' => $recordDate, 'type' => $type, 'bid' => $biometric_imports_id]);
+        }
 
         $hm = fn($key) => $this->formatHoursForDb($computed[$key] ?? 0);
 
@@ -659,12 +702,17 @@ class AttendanceProcessor
         }
 
         // insert new overtime record
-        $emp = DB::table('employee_management')->where('employee_name', $employeeName)->first();
-        $isNonWorking = DB::table('custom_dates')->whereRaw('DATE(record_date) = ?', [$recordDate])->exists();
+        if ($lookups !== null) {
+            $emp = $lookups['employees_by_name'][$employeeName] ?? null;
+            $isNonWorking = isset($lookups['non_working'][$recordDate]);
+        } else {
+            $emp = DB::table('employee_management')->where('employee_name', $employeeName)->first();
+            $isNonWorking = DB::table('custom_dates')->whereRaw('DATE(record_date) = ?', [$recordDate])->exists();
+        }
         $lateMinutes = ($isNonWorking || !empty($attendanceRow->leaves)) ? 0 : (new ComputationService())->lateAndUndertime(
             $emp->schedule ?? null, $attendanceRow->earliest_time, $attendanceRow->latest_time, $attendanceRow->department ?? ($emp->department ?? null)
         )['late_minutes'];
-        $id = DB::table('overtimes')->insertGetId([
+        $newRow = [
             'unique_id' => $attendanceRow->unique_id ?? 'TMNG-000000-000',
             'first_name' => explode(',', $employeeName)[1] ?? '',
             'last_name' => explode(',', $employeeName)[0] ?? '',
@@ -696,9 +744,49 @@ class AttendanceProcessor
             'employee_management_id' => $attendanceRow->employee_management_id ?? ($emp->id ?? null),
             'created_at' => now(),
             'updated_at' => now()
-        ]);
+        ];
 
-        return $id;
+        // When preloaded, rows are queued and inserted in chunks by flushOvertimes();
+        // the key is marked now so a later duplicate in the same import is still skipped.
+        if ($lookups !== null) {
+            $lookups['pending_overtimes'][] = $newRow;
+            $lookups['overtimes'][$overtimeKey] = 0;
+            return null;
+        }
+
+        return DB::table('overtimes')->insertGetId($newRow);
+    }
+
+    /** Insert the overtime rows queued by logOrUpdateOvertime(), in chunks. */
+    private function flushOvertimes(array &$lookups): void
+    {
+        foreach (array_chunk($lookups['pending_overtimes'] ?? [], 500) as $chunk) {
+            try {
+                DB::transaction(fn () => DB::table('overtimes')->insert($chunk));
+            } catch (\Throwable $e) {
+                // As before batching: a row that fails is logged and the others are still saved.
+                foreach ($chunk as $row) {
+                    try {
+                        DB::transaction(fn () => DB::table('overtimes')->insert($row));
+                    } catch (\Throwable $rowError) {
+                        Log::error("calculateHoursForBiometricImport row failed: ".$rowError->getMessage());
+                    }
+                }
+            }
+        }
+        $lookups['pending_overtimes'] = [];
+    }
+
+    /** Key of an overtime row as matched by logOrUpdateOvertime() (record_date at midnight). */
+    private function overtimeKey(?string $employeeName, string $recordDate, ?string $type): string
+    {
+        return $employeeName . '|' . Carbon::parse($recordDate)->format('Y-m-d H:i:s') . '|' . $type;
+    }
+
+    /** Key of a security_attendance row as matched by logSecurityAttendance(). */
+    private function securityKey($employeeId, string $recordDate, $earliest, $latest, $biometricImportsId): string
+    {
+        return implode('|', [$employeeId, Carbon::parse($recordDate)->format('Y-m-d H:i:s'), $earliest, $latest, $biometricImportsId]);
     }
 
     /** "HH:MM" (as stored on overtime records) to decimal hours. */
@@ -720,23 +808,31 @@ class AttendanceProcessor
     /**
      * Logs or updates security_attendance (mimics python log_security_db)
      */
-    protected function logSecurityAttendance($attendanceRow, $type, $hours, $biometric_imports_id = null, $attendance_records_id = null)
+    protected function logSecurityAttendance($attendanceRow, $type, $hours, $biometric_imports_id = null, $attendance_records_id = null, ?array &$lookups = null)
     {
         // get employee management id
-        $empId = DB::table('employee_management')->where('employee_name', $attendanceRow->employee_name)->value('id');
+        $empId = $lookups !== null
+            ? ($lookups['employees_by_name'][$attendanceRow->employee_name]->id ?? null)
+            : DB::table('employee_management')->where('employee_name', $attendanceRow->employee_name)->value('id');
         if (!$empId) return;
 
         $record_date = substr($attendanceRow->record_date,0,10);
         $earliest = $attendanceRow->earliest_time;
         $latest = $attendanceRow->latest_time;
+        $importId = $biometric_imports_id ?? $attendanceRow->biometric_imports_id;
+        $securityKey = $this->securityKey($empId, $record_date, $earliest, $latest, $importId);
 
-        $existing = DB::table('security_attendance')->where([
-            ['employee_management_id', $empId],
-            ['record_date', $record_date],
-            ['earliest_time', $earliest],
-            ['latest_time', $latest],
-            ['biometric_imports_id', $biometric_imports_id ?? $attendanceRow->biometric_imports_id],
-        ])->first();
+        if ($lookups !== null) {
+            $existing = isset($lookups['security'][$securityKey]) ? (object) ['id' => $lookups['security'][$securityKey]] : null;
+        } else {
+            $existing = DB::table('security_attendance')->where([
+                ['employee_management_id', $empId],
+                ['record_date', $record_date],
+                ['earliest_time', $earliest],
+                ['latest_time', $latest],
+                ['biometric_imports_id', $importId],
+            ])->first();
+        }
 
         if ($existing) {
             if ($type === 'hours_worked') {
@@ -760,7 +856,10 @@ class AttendanceProcessor
             if ($type === 'hours_worked') $data['hours_worked'] = $hours;
             if ($type === 'OT') $data['ot'] = $hours;
             if ($type === 'ND') $data['nd'] = $hours;
-            DB::table('security_attendance')->insert($data);
+            $id = DB::table('security_attendance')->insertGetId($data);
+            if ($lookups !== null) {
+                $lookups['security'][$securityKey] = $id;
+            }
         }
     }
 
@@ -811,6 +910,7 @@ class AttendanceProcessor
 
         $employeeData = DB::table('employee_management')->get()->toArray();
         $computation  = new ComputationService();
+        $context      = $computation->buildContext($employeeData, $start, $end);
         $employees    = [];
 
         // Schedule adjustments in the period, by employee and day (same source the OT calculation uses)
@@ -889,7 +989,7 @@ class AttendanceProcessor
                 // ND on regular hours is a premium on the regular day, not OT: always shown
                 if (!$onLeave) {
                     [, $ordNd] = $computation->autocalculateOrd(
-                        (array) $r, $nonWorkingDays, $employeeData, null, null, $r->biometric_imports_id
+                        (array) $r, $nonWorkingDays, $employeeData, null, null, $r->biometric_imports_id, $context
                     );
                     $day['ord_nd'] += $ordNd;
                 }
