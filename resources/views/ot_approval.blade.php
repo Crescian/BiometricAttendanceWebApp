@@ -140,7 +140,7 @@
                     <select id="ot-filter-department" class="px-2 py-1.5 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 hidden" aria-label="Department">
                         <option value="">All departments</option>
                     </select>
-                    <select id="ot-filter-schedule" class="px-2 py-1.5 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 hidden" aria-label="Schedule">
+                    <select id="ot-filter-schedule" class="w-40 px-2 py-1.5 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 hidden" aria-label="Schedule">
                         <option value="">All schedules</option>
                     </select>
                     <select id="ot-filter-type" class="px-2 py-1.5 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500" aria-label="OT type">
