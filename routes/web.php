@@ -92,6 +92,7 @@ Route::middleware('auth')->group(function () {
     // Must stay above /overtime/{id}, which would otherwise capture these paths as an id
     Route::post('/overtime/bulk-approve', [OvertimeController::class, 'bulkApprove'])->name('overtime.bulkApprove');
     Route::get('/overtime/bulk-options', [OvertimeController::class, 'bulkOptions'])->name('overtime.bulkOptions');
+    Route::get('/overtime/filter-options', [OvertimeController::class, 'filterOptions'])->name('overtime.filterOptions');
     Route::post('/overtime/bulk-approve-by', [OvertimeController::class, 'bulkApproveBy'])->name('overtime.bulkApproveBy');
     Route::post('/overtime/{id}', [OvertimeController::class, 'updateTime'])->name('overtime.updateTime');
     Route::get('/overtime/{id}', [OvertimeController::class, 'edit'])->name('overtime.edit');

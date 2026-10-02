@@ -66,8 +66,6 @@ class OvertimeController extends Controller
         if ($request->ajax()) {
             // Get request parameters
             $status      = $request->get('status', 'Pending');
-            $userRole    = $request->get('userRole', 'user'); // default 'user'
-            $department  = $request->get('department');
             $biometricId = $this->biometricHistoryList->getLoadedRecordId();
 
             // Build query
@@ -77,10 +75,10 @@ class OvertimeController extends Controller
                 // Always filter by biometric import ID if available
                 ->when($biometricId, fn($q) => $q->where('biometric_imports_id', $biometricId));
 
-            // Filter by department only if userRole is 'user'
-            if ($userRole === 'user' && $department) {
-                $data->where('department', $department);
-            }
+            // Non-admins only see the departments they head, decided here rather than
+            // from the role/department the page sends (which the browser could change).
+            $this->restrictToOwnDepartments($data);
+            $this->applyFilters($data, $request);
 
             // Default order when the table asks for none; otherwise DataTables applies the
             // clicked column (a fixed orderBy here would always take precedence over it).
@@ -99,6 +97,60 @@ class OvertimeController extends Controller
     /**
      * Restrict a query to the departments the current user heads (admins see everything).
      */
+    /** Overtime page filters: date range, department and OT type (all optional). */
+    protected function applyFilters($query, Request $request)
+    {
+        $request->validate([
+            'date_from' => ['nullable', 'date'],
+            'date_to' => ['nullable', 'date'],
+            'filter_department' => ['nullable', 'string', 'max:100'],
+            'ot_type' => ['nullable', 'in:ord_ot,nd,rd'],
+        ]);
+
+        if ($request->filled('date_from')) {
+            $query->whereRaw('record_date::date >= ?', [$request->date_from]);
+        }
+        if ($request->filled('date_to')) {
+            $query->whereRaw('record_date::date <= ?', [$request->date_to]);
+        }
+        if ($request->filled('filter_department')) {
+            $query->where('department', $request->filter_department);
+        }
+
+        // Hours are "HH:MM" strings: a value has hours when it contains a non-zero digit
+        $columns = [
+            'ord_ot' => ['ord_ot'],
+            'nd' => ['ord_nd', 'ord_nd_ot'],
+            'rd' => ['rd', 'rd_ot', 'rd_nd', 'rd_nd_ot'],
+        ][$request->ot_type] ?? null;
+        if ($columns) {
+            $query->where(function ($q) use ($columns) {
+                foreach ($columns as $column) {
+                    $q->orWhereRaw("{$column} ~ '[1-9]'");
+                }
+            });
+        }
+
+        return $query;
+    }
+
+    /** Choices for the Overtime page filters: departments and the date range of the loaded import. */
+    public function filterOptions()
+    {
+        $scope = fn () => $this->restrictToOwnDepartments(
+            Overtime::where('biometric_imports_id', $this->biometricHistoryList->getLoadedRecordId())
+        );
+
+        $range = $scope()->selectRaw('MIN(record_date)::date AS min_date, MAX(record_date)::date AS max_date')->first();
+
+        return response()->json([
+            'departments' => $scope()->whereNotNull('department')->where('department', '<>', '')
+                ->distinct()->orderBy('department')->pluck('department'),
+            'min_date' => $range->min_date ?? null,
+            'max_date' => $range->max_date ?? null,
+        ]);
+    }
+
     protected function restrictToOwnDepartments($query)
     {
         if ((Auth::user()->role ?? '') !== 'admin') {
