@@ -70,15 +70,8 @@ Route::middleware('auth')->group(function () {
     Route::post('/get-entry-dates', [CsvimportController::class, 'getDistinctEntryDates'])->name('report.fetch');
     // Payroll data (names, basic pay): admins only
     Route::get('/export-csv', [CsvimportController::class, 'exportCsv'])->middleware('role:admin')->name('export.csv');
-    Route::post('/save-overtime-json', [CsvimportController::class, 'saveOvertimeJson'])->name('export.saveOvertimeJson');
-    Route::post('/save-custom-holiday-json', [CsvimportController::class, 'saveCustomHolidayJson'])->name('export.saveCustomHolidayJson');
 
-    Route::post('/append-employee-date', [CsvimportController::class, 'appendDate']);
-    Route::post('/append-attendance-certificates', [CsvimportController::class, 'appendAttendanceCertificates']);
-    Route::get('/employee-date/count', [CsvimportController::class, 'count']);
     Route::post('/report-generation', [CsvimportController::class, 'reportGeneration'])->name('report.generation');
-    Route::post('/finalize-attendance-certificates', [CsvimportController::class, 'finalizeAttendanceCertificates'])->name('finalize.attendance.certificates');
-    Route::post('/run-edit-ot', [CsvimportController::class, 'runEditOt']);
 
     Route::get('/employees', [EmployeeManagementController::class, 'index'])->name('employees.fetch');
     Route::get('/employees/{id}', [EmployeeManagementController::class, 'edit'])->name('employees.edit');
@@ -235,29 +228,6 @@ Route::middleware('auth')->group(function () {
             'Content-Type' => 'text/xlsx',
         ]);
     })->name('download.security');
-
-    // routes/web.php
-    Route::post('/overtime_logs/approve', function(\Illuminate\Http\Request $request) {
-        $payload = $request->all();
-        $path    = public_path('overtime_logs.json');
-        $json    = json_decode(file_get_contents($path), true);
-
-        foreach ($json as &$item) {
-            if ($item['id'] === $payload['id']
-                && $item['record_date'] === $payload['date']
-            ) {
-                $item['approval_status'] = "true";
-                break;
-            }
-        }
-
-        file_put_contents($path, json_encode($json, JSON_PRETTY_PRINT));
-        return response()->json(['success' => true]);
-    });
-
-
-    Route::post('/employee_dates/remove', [CsvimportController::class, 'removeEntry'])
-        ->name('employee_dates.remove');
-    });
+});
 
 require __DIR__.'/auth.php';

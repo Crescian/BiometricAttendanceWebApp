@@ -21,7 +21,7 @@ php artisan serve
 | File | Purpose |
 |------|---------|
 | `app/Services/ComputationService.php` | ORD/RD/ND overtime calculation, DB insert/update for `overtimes` and `security_attendance` |
-| `app/Services/AttendanceProcessor.php` | Biometric file ingestion (CSV/XLSX → `attendance_records`), payroll CSV generation, certificate finalization |
+| `app/Services/AttendanceProcessor.php` | Biometric file ingestion (CSV/XLSX → `attendance_records`), payroll CSV generation |
 
 `ComputationService` has three public computation methods:
 - `autocalculateOrd($row, $nonWorkingDays, $data, ...)` → `[ord_ot, ord_nd, ord_nd_ot]`
@@ -31,7 +31,6 @@ php artisan serve
 `AttendanceProcessor` public methods:
 - `processFile($filePath, $outputDir, $biometricImportsId)` — full biometric file pipeline
 - `generatePayrollReport(string $start, string $end)` — writes the payroll CSV/XLSX, DTR and security reports via `AttendanceProcessor::reportPath()`
-- `finalizeCertificates($certificatesPath, $overtimeLogsPath, $outputDir)` — processes `attendance_certificates.json`
 
 ### Key models
 | Model | Table | Notes |
@@ -50,8 +49,6 @@ php artisan serve
 |-----------|--------|-----|-----|
 | `CsvimportController` | `uploadCSV()` | `autocompute_attendance.py` | `AttendanceProcessor::processFile()` |
 | `CsvimportController` | `reportGeneration()` | `compute_attendance.py` | `AttendanceProcessor::generatePayrollReport()` |
-| `CsvimportController` | `finalizeAttendanceCertificates()` | `attendance_manager.py` | `AttendanceProcessor::finalizeCertificates()` |
-| `CsvimportController` | `runEditOt()` | `edit_ot.py` | `ComputationService` + DB update |
 | `OvertimeController` | `updateTime()` | `edit_ot.py overtimes` | `ComputationService::autocalculateOrd/Rd` + `logOvertimeDb()` |
 | `ScheduleAdjustmentController` | `approve()` | `edit_ot.py schedule_adjustment` | `ComputationService::autocalculateOrd/Rd` + `logOvertimeDb()` |
 
@@ -119,4 +116,5 @@ php artisan serve
 - `employee_name` format is always `"LAST, FIRST"` (uppercase)
 - `biometric_imports_id` on every major table links records to a specific import batch
 - Generated reports contain names and pay: write them only through `AttendanceProcessor::reportPath()` (`storage/app/reports`, outside the web root) and serve them through the logged-in `download.*` routes. Never write them under `public/`.
+- Don't keep working state in JSON files under `public/`. The old Python-era JSON endpoints (`attendance_certificates.json`, `overtime_logs.json`, `employee_dates.json`) were removed. Certificates, overtime and schedules go through their database tables and approval workflows.
 - Do **not** call `exec()` or shell Python — all computation is in `ComputationService` and `AttendanceProcessor`
