@@ -138,6 +138,9 @@
             {{ $slot }}
         </main>
 
+        {{-- "Help" tab + panel with this page's instructions --}}
+        @include('layouts.page-help')
+
         <span class="text-white">Developed by CML and FLL</span>
         <footer class="bg-white border-t border-gray-200 mt-10">
             <div
