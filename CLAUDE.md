@@ -93,6 +93,8 @@ php artisan serve
   - **Days no other import covers** are deleted, along with their `overtimes`, `security_attendance` and `dtr_report` rows. Leaves, certificates and schedule adjustments attached to those records go with them through `attendance_records_id ON DELETE CASCADE`.
   - **Leaves, certificates, schedule adjustments and `csvimports`** are never deleted just for their import tag. Their `biometric_imports_id` FK is `SET NULL`. `csvimports` is kept on purpose as the record of what was paid.
   - **Locked imports:** a locked import can't be edited or deleted, and nothing is ever moved into one. The request returns a 423 error.
+  - A delete is also refused if removing a day would cascade into a locked import's overtime, leaves, certificates or adjustments. Approval records that only a locked import would take are kept untagged instead of blocking the delete.
+  - An upload's default payroll period is the file's first and last day, including days skipped because an earlier import already has them, so those days stay covered.
 - Never delete per-day data by `biometric_imports_id` alone. Check whether another import's period covers that day first.
 
 ## Payroll report flow

@@ -187,9 +187,11 @@ class BiometricHistoryListController extends Controller
             // 1. Hand covered days over first, so the deletes below cannot cascade into them.
             $moved = [];
             foreach (array_keys(self::DAY_TABLES) as $table) {
-                $target = $this->targetImportSql($table);
-                $sql = "UPDATE {$table} AS x SET biometric_imports_id = {$target}
-                        WHERE x.biometric_imports_id = ? AND {$target} IS NOT NULL";
+                // The target is worked out once per row, then applied.
+                $sql = "UPDATE {$table} AS u SET biometric_imports_id = t.target
+                        FROM (SELECT x.id, {$this->targetImportSql($table)} AS target
+                              FROM {$table} x WHERE x.biometric_imports_id = ?) t
+                        WHERE u.id = t.id AND t.target IS NOT NULL";
                 $moved[$table] = DB::update($sql, $this->bindId($sql, $id));
             }
 
@@ -259,26 +261,38 @@ class BiometricHistoryListController extends Controller
      */
     private function lockedTargetResponse(array $plan)
     {
-        $locked = array_filter($plan['moved'], fn ($target) => $target['is_locked']);
-        if (!$locked) {
-            return null;
-        }
-        $titles = implode(', ', array_map(fn ($t) => "\"{$t['title']}\"", $locked));
+        $quote = fn ($titles) => implode(', ', array_map(fn ($t) => "\"{$t}\"", $titles));
 
-        return response()->json([
-            'message' => "Some days of this import are in the payroll period of locked import {$titles}. "
-                .'Unlock it or change its period first.',
-        ], 423);
+        $locked = array_filter($plan['moved'], fn ($target) => $target['is_locked']);
+        if ($locked) {
+            return response()->json([
+                'message' => 'Some days of this import are in the payroll period of locked import '
+                    .$quote(array_column($locked, 'title')).'. Unlock it or change its period first.',
+            ], 423);
+        }
+
+        // Deleting a day also removes the overtime, leaves, certificates and adjustments attached to
+        // it, whichever import they belong to; a locked import's rows must not go that way either.
+        if ($plan['locked_cascade']) {
+            return response()->json([
+                'message' => 'Deleting this import would remove records that belong to locked import '
+                    .$quote($plan['locked_cascade']).'. Unlock it first.',
+            ], 423);
+        }
+
+        return null;
     }
 
     /**
      * SQL for the import whose payroll period covers the date {$dateExpr}, other than the one being
      * deleted (its id is the `?`). Unlocked imports first, then the loaded one, then the newest.
      */
-    private function coveringImportSql(string $dateExpr): string
+    private function coveringImportSql(string $dateExpr, bool $unlockedOnly = false): string
     {
+        $unlocked = $unlockedOnly ? 'AND NOT COALESCE(bi.is_locked, false)' : '';
+
         return "(SELECT bi.id FROM biometric_imports bi
-                 WHERE bi.id <> ? AND ({$dateExpr})::date BETWEEN bi.period_start AND bi.period_end
+                 WHERE bi.id <> ? AND ({$dateExpr})::date BETWEEN bi.period_start AND bi.period_end {$unlocked}
                  ORDER BY COALESCE(bi.is_locked, false), (bi.status = 'load') DESC, bi.id DESC LIMIT 1)";
     }
 
@@ -289,14 +303,22 @@ class BiometricHistoryListController extends Controller
      */
     private function targetImportSql(string $table): string
     {
-        $ownDay = $this->coveringImportSql('x.'.self::DAY_TABLES[$table]);
+        // Approval records (leaves, certificates, adjustments) are never handed to a locked import:
+        // where only a locked one would take them they are kept untagged instead, which changes no
+        // payroll figure (they apply by employee and day). So they never block a delete.
+        $workflow = in_array($table, self::WORKFLOW_TABLES, true);
+        $ownDay = $this->coveringImportSql('x.'.self::DAY_TABLES[$table], $workflow);
         if (!in_array($table, self::ATTACHED_TABLES, true)) {
             return $ownDay;
         }
+        $recordsImport = $workflow
+            ? "(CASE WHEN (SELECT COALESCE(bi.is_locked, false) FROM biometric_imports bi WHERE bi.id = ar.biometric_imports_id)
+                     THEN NULL ELSE ar.biometric_imports_id END)"
+            : 'ar.biometric_imports_id';
 
         return "(CASE WHEN x.attendance_records_id IS NULL THEN {$ownDay}
-                 ELSE (SELECT CASE WHEN ar.biometric_imports_id = ? THEN {$this->coveringImportSql('ar.record_date')}
-                                   WHEN ar.biometric_imports_id IS NOT NULL THEN ar.biometric_imports_id
+                 ELSE (SELECT CASE WHEN ar.biometric_imports_id = ? THEN {$this->coveringImportSql('ar.record_date', $workflow)}
+                                   WHEN ar.biometric_imports_id IS NOT NULL THEN {$recordsImport}
                                    ELSE {$ownDay} END
                        FROM attendance_records ar WHERE ar.id = x.attendance_records_id)
                  END)";
@@ -357,6 +379,16 @@ class BiometricHistoryListController extends Controller
         }
         $kept['csvimports'] = DB::table('csvimports')->where('biometric_imports_id', $id)->count();
 
+        $lockedCascade = [];
+        foreach (self::ATTACHED_TABLES as $table) {
+            $sql = "SELECT DISTINCT bi.title FROM {$table} x
+                    JOIN biometric_imports bi ON bi.id = x.biometric_imports_id
+                    WHERE bi.id <> ? AND COALESCE(bi.is_locked, false) AND x.attendance_records_id IN ({$doomed})";
+            foreach (DB::select($sql, $this->bindId($sql, $id)) as $row) {
+                $lockedCascade[$row->title] = true;
+            }
+        }
+
         $targets = BiometricHistoryList::whereIn('id', array_keys($movedByImport))->orderBy('id')->get();
         $moved = $targets->map(fn ($t) => [
             'id' => $t->id,
@@ -370,6 +402,7 @@ class BiometricHistoryListController extends Controller
             'deleted' => array_filter($deleted),
             'kept' => array_filter($kept),
             'approved_overtime' => $approvedOt,
+            'locked_cascade' => array_keys($lockedCascade),
         ];
     }
 

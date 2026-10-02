@@ -98,7 +98,7 @@ class AttendanceProcessor
         $stats = $this->insertAttendanceRecords($processed, $biometricImportsId);
 
         // 4b. default the batch's payroll period to its first/last punch date
-        $this->setDefaultPeriod($biometricImportsId);
+        $this->setDefaultPeriod($biometricImportsId, $processed);
 
         // 5. Optionally calculate hours/OT for new records (we implement a basic version here)
         $this->calculateHoursForBiometricImport($biometricImportsId);
@@ -425,13 +425,7 @@ class AttendanceProcessor
     {
         $stats = ['inserted' => 0, 'skipped_duplicate' => 0, 'skipped_same_time' => 0, 'skipped_no_emp' => 0];
 
-        $normalizeDate = function (string $recordDate): string {
-            if (strpos($recordDate, '/') !== false) {
-                [$m, $d, $y] = explode('/', $recordDate);
-                return sprintf('%04d-%02d-%02d', $y, $m, $d);
-            }
-            return substr($recordDate, 0, 10);
-        };
+        $normalizeDate = fn (string $recordDate): string => $this->normalizeRecordDate($recordDate);
 
         DB::beginTransaction();
         try {
@@ -441,7 +435,11 @@ class AttendanceProcessor
             foreach (DB::table('employee_management')->get(['id', 'employee_name']) as $e) {
                 $employeeIds[$e->employee_name] ??= $e->id;
             }
-            $dates = array_map(fn ($row) => $normalizeDate((string) ($row['record_date'] ?? '')), $records);
+            // Only well-formed dates bound the range; any other row is handled (and fails) as before.
+            $dates = array_values(array_filter(
+                array_map(fn ($row) => $normalizeDate((string) ($row['record_date'] ?? '')), $records),
+                fn ($d) => (bool) preg_match('/^\d{4}-\d{2}-\d{2}$/', $d)
+            ));
             $stored = [];
             if ($dates) {
                 $existing = DB::table('attendance_records')
@@ -513,16 +511,37 @@ class AttendanceProcessor
         return $stats;
     }
 
-    /**
-     * Fill period_start / period_end on the batch from its attendance_records
-     * when the admin has not set them yet.
-     */
-    protected function setDefaultPeriod(int $biometricImportsId): void
+    /** A parsed record's date as Y-m-d ("m/d/Y" or anything starting with Y-m-d). */
+    private function normalizeRecordDate(string $recordDate): string
     {
-        $range = DB::table('attendance_records')
-            ->where('biometric_imports_id', $biometricImportsId)
-            ->selectRaw('MIN(record_date)::date AS min_date, MAX(record_date)::date AS max_date')
-            ->first();
+        if (strpos($recordDate, '/') !== false) {
+            [$m, $d, $y] = explode('/', $recordDate);
+            return sprintf('%04d-%02d-%02d', $y, $m, $d);
+        }
+        return substr($recordDate, 0, 10);
+    }
+
+    /**
+     * Fill period_start / period_end on the batch when the admin has not set them yet: the first
+     * and last day in the uploaded file, so days skipped because an earlier import already holds
+     * them still fall inside this import's period (and stay covered if that import is deleted).
+     * Without parsed records, the batch's own attendance_records give the range.
+     */
+    protected function setDefaultPeriod(int $biometricImportsId, array $records = []): void
+    {
+        $dates = array_values(array_filter(
+            array_map(fn ($row) => $this->normalizeRecordDate((string) ($row['record_date'] ?? '')), $records),
+            fn ($d) => (bool) preg_match('/^\d{4}-\d{2}-\d{2}$/', $d)
+        ));
+
+        if ($dates) {
+            $range = (object) ['min_date' => min($dates), 'max_date' => max($dates)];
+        } else {
+            $range = DB::table('attendance_records')
+                ->where('biometric_imports_id', $biometricImportsId)
+                ->selectRaw('MIN(record_date)::date AS min_date, MAX(record_date)::date AS max_date')
+                ->first();
+        }
 
         if (!$range || !$range->min_date) return;
 
@@ -558,13 +577,13 @@ class AttendanceProcessor
 
         if (empty($rows)) return;
 
-        // Preload custom_dates (non-working days), employees, schedule adjustments and the
-        // import's existing overtime/security rows, so no row needs a query to look them up.
-        $customDates = DB::table('custom_dates')->pluck('record_date')->map(fn($d) => substr($d,0,10))->toArray();
+        // Preload non-working days, employees, the schedule adjustments in the import's date range
+        // and its existing overtime/security rows, so no row needs a query to look them up.
         $computation  = new ComputationService();
         $employeeData = DB::table('employee_management')->get()->toArray();
         $employees    = collect($employeeData);
-        $context      = $computation->buildContext($employeeData);
+        $days         = array_map(fn ($r) => substr($r->record_date, 0, 10), $rows);
+        $context      = $computation->buildContext($employeeData, min($days), max($days));
         $lookups      = [
             'employees_by_name' => $context['employees_by_name'],
             'non_working'       => $context['non_working'],
@@ -585,7 +604,7 @@ class AttendanceProcessor
         foreach ($rows as $r) {
             try {
                 $record_date = substr($r->record_date, 0, 10);
-                if (in_array($record_date, $customDates)) {
+                if (isset($context['non_working'][$record_date])) {
                     // Non-working: we still may log as RD if required by logic; skip hours
                     $hoursWorked = 0;
                 } else {
@@ -616,7 +635,7 @@ class AttendanceProcessor
                 // a time is edited or a record is approved, so the Overtime page starts out correct.
                 $rowArr = (array) $r;
                 [$ordOt, $ordNd, $ordNdOt] = $computation->autocalculateOrd(
-                    $rowArr, $customDates, $employeeData, null, null, $r->biometric_imports_id, $context
+                    $rowArr, [], $employeeData, null, null, $r->biometric_imports_id, $context
                 );
                 $rd = $computation->autocalculateRdAndOvertime($rowArr, $employees, $context);
 

@@ -171,19 +171,6 @@ Route::middleware('auth')->group(function () {
 
     // Generated reports hold names and pay: admins only
     Route::middleware('role:admin')->group(function () {
-        Route::get('/download/converted-file', function () {
-            $path = \App\Services\AttendanceProcessor::reportPath('ConvertedFile.csv'); // correct filename
-
-            if (!file_exists($path)) {
-                abort(404, 'File not found.');
-            }
-
-            return response()->download($path, 'ConvertedFile.csv', [
-                'Content-Type' => 'text/csv',
-            ]);
-        })->name('download.convertedfile');
-
-
         Route::get('/download/payroll-file', function () {
             $path = \App\Services\AttendanceProcessor::reportPath('payroll file.xlsx');
 

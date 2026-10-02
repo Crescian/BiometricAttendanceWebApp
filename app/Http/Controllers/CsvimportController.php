@@ -102,7 +102,7 @@ class CsvimportController extends Controller
         $uploadedFile->storeAs('public/python', $fileName);
 
         $csvPath    = storage_path("app/public/python/{$fileName}");
-        $outputDir  = public_path('python/');
+        $outputDir  = storage_path('app/reports/');
 
         // Create the real biometric_imports row here (instead of guessing a future id)
         // so attendance_records/overtimes seeded below always match the id that

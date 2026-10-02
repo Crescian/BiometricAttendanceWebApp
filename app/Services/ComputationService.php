@@ -240,8 +240,11 @@ class ComputationService
     }
 
     /** Schedule from an adjustment for this employee and day, from $context or the database. */
-    private function adjustedSchedule(string $employeeName, string $recordDate, ?array $context)
+    private function adjustedSchedule(?string $employeeName, string $recordDate, ?array $context)
     {
+        if ($employeeName === null) {
+            return null; // no employee_management row has a NULL name, as the per-row query found
+        }
         if ($context !== null) {
             return $context['adjustments'][$employeeName . '|' . $recordDate] ?? null;
         }
