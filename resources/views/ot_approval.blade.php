@@ -321,6 +321,8 @@
                                 [4, 'asc'],
                                 [3, 'asc']
                             ],
+                            // Only Employee and Date can be sorted (set on those two columns)
+                            columnDefs: [{ targets: '_all', orderable: false }],
                             ajax: {
                                 url: "{{ route('overtime.fetch') }}",
                                 data: dataDetails
@@ -340,6 +342,7 @@
                                 {
                                     data: 'last_name',
                                     name: 'last_name',
+                                    orderable: true,
                                     className: 'all',
                                     render: function(data, type, row) {
                                         return type === 'display' ? employeeCell(row.last_name, row.first_name) :
@@ -349,6 +352,7 @@
                                 {
                                     data: 'record_date',
                                     name: 'record_date',
+                                    orderable: true,
                                     render: function(data) {
                                         if (!data) return '';
                                         // Keep only the date part before the space
