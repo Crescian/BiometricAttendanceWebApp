@@ -521,12 +521,13 @@
                     let firstName = "";
                     let lastName = "";
 
+                    // Stored as "LAST, FIRST": the part before the first comma is the last name
                     if (fullName.includes(",")) {
-                        const parts = fullName.split(",");
-                        firstName = parts[0].trim();
-                        lastName = parts[1].trim();
+                        const comma = fullName.indexOf(",");
+                        lastName = fullName.slice(0, comma).trim();
+                        firstName = fullName.slice(comma + 1).trim();
                     } else {
-                        firstName = fullName;
+                        lastName = fullName;
                     }
 
                     console.log(data);
@@ -552,7 +553,7 @@
             let employeeUniqueId = $('#employeeUniqueId').val();
             let employeeFirstName = $('#employeeFirstName').val();
             let employeeLastName = $('#employeeLastName').val();
-            let employeeName = employeeFirstName + ', ' + employeeLastName;
+            let employeeName = employeeLastName.trim() + ', ' + employeeFirstName.trim(); // "LAST, FIRST"
             let basicSalary = $('#basicSalary').val();
             let department = $('#department').val();
             let report_to = $('#report_to').val();

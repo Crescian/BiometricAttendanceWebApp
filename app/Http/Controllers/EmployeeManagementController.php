@@ -241,10 +241,18 @@ class EmployeeManagementController extends Controller
     //     return response()->json(['message' => 'Employee added successfully.']);
     // }
 
+    /** An employee name as stored everywhere: "LAST, FIRST" in uppercase. */
+    private function formatEmployeeName(?string $lastName, ?string $firstName): string
+    {
+        $clean = fn (?string $part) => mb_strtoupper(trim((string) $part));
+
+        return $clean($lastName) . ', ' . $clean($firstName);
+    }
+
     public function store(Request $request)
     {
-        // Combine first and last name into the required format "FirstName, LastName"
-        $employeeName = $request->employeeAddFirstName . ', ' . $request->employeeAddLastName;
+        // Stored as "LAST, FIRST" in uppercase, the format biometric files are matched against
+        $employeeName = $this->formatEmployeeName($request->employeeAddLastName, $request->employeeAddFirstName);
 
         // Validate the incoming request data
         $request->validate([
@@ -267,7 +275,7 @@ class EmployeeManagementController extends Controller
         // Create a new employee record
         $employee = EmployeeManagement::create([
             'unique_id' => $request->employeeAddUniqueId,
-            'employee_name' => $employeeName, // Store as "FirstName, LastName"
+            'employee_name' => $employeeName, // "LAST, FIRST"
             'basic_salary' => $request->basicAddSalary,
             'department' => $request->employeeAddDepartment ?? null, // Optional if your DB has this field
             'schedule' => $request->employeeAddSchedule,
@@ -340,7 +348,8 @@ class EmployeeManagementController extends Controller
 
         // Only enforce the duplicate-name check if the name input actually changed
         // from what's already on file — resubmitting an unchanged form shouldn't error.
-        $newName = $request->input('employee_name');
+        // The form sends "Last, First"; store it uppercase like every other name
+        $newName = mb_strtoupper(trim($request->input('employee_name')));
 
         if ($newName !== $employee->employee_name) {
             $existingEmployee = EmployeeManagement::where('employee_name', $newName)
@@ -354,7 +363,7 @@ class EmployeeManagementController extends Controller
 
         // Update the employee's details
         $employee->unique_id = $request->input('unique_id');
-        $employee->employee_name = $request->input('employee_name');
+        $employee->employee_name = $newName;
         $employee->basic_salary = $request->input('basic_salary');
         $employee->department = $request->input('department');
         $employee->report_to = $request->input('report_to');
