@@ -30,7 +30,7 @@ php artisan serve
 
 `AttendanceProcessor` public methods:
 - `processFile($filePath, $outputDir, $biometricImportsId)` — full biometric file pipeline
-- `generatePayrollReport(int $biometricImportsId)` — writes `public/python/payroll file.csv`
+- `generatePayrollReport(string $start, string $end)` — writes the payroll CSV/XLSX, DTR and security reports via `AttendanceProcessor::reportPath()`
 - `finalizeCertificates($certificatesPath, $overtimeLogsPath, $outputDir)` — processes `attendance_certificates.json`
 
 ### Key models
@@ -87,9 +87,20 @@ php artisan serve
 5. Records inserted into `attendance_records`; OT seeded into `overtimes`
 6. `BiometricHistoryList` with `status='load'` controls which import is "active"
 
+## Imports share days: deleting one
+- `attendance_records` holds **one row per employee per day across all imports** (unique index). A re-upload skips days that already exist, so the earlier import keeps them.
+- Payroll and DTR are built **by date range** (`AttendanceProcessor::buildDailyBreakdown()`), not by import. An import's payroll can depend on days that are tagged with a different import.
+- `BiometricHistoryListController::destroy()` (and `deletePreview()`, which reports the same outcome):
+  - **Days inside another import's `period_start`–`period_end`** are re-tagged to that import, in every per-day table (`DAY_TABLES`). Unlocked imports are chosen first, then the loaded one, then the newest. A row with an `attendance_records_id` follows its attendance record rather than its own date.
+  - The plan, the lock check and the changes run in one transaction that locks every `biometric_imports` row. The import row is deleted with a query-builder delete, so only the detailed audit entry is written.
+  - **Days no other import covers** are deleted, along with their `overtimes`, `security_attendance` and `dtr_report` rows. Leaves, certificates and schedule adjustments attached to those records go with them through `attendance_records_id ON DELETE CASCADE`.
+  - **Leaves, certificates, schedule adjustments and `csvimports`** are never deleted just for their import tag. Their `biometric_imports_id` FK is `SET NULL`. `csvimports` is kept on purpose as the record of what was paid.
+  - **Locked imports:** a locked import can't be edited or deleted, and nothing is ever moved into one. The request returns a 423 error.
+- Never delete per-day data by `biometric_imports_id` alone. Check whether another import's period covers that day first.
+
 ## Payroll report flow
 1. `reportGeneration()` → `AttendanceProcessor::generatePayrollReport($biometricImportId)`
-2. Writes `public/python/payroll file.csv`
+2. Writes `storage/app/reports/payroll file.csv` (plus `.xlsx`, `reportdtr.xlsx`, `security.xlsx`)
 3. `importCSV()` reads that CSV and populates `csvimports` table
 4. `exportCsv()` allows downloading the final payroll data
 
@@ -106,4 +117,5 @@ php artisan serve
 - All time fields (`ord_ot`, `rd`, `ord_nd`, etc.) are stored as `HH:MM` strings, not decimals
 - `employee_name` format is always `"LAST, FIRST"` (uppercase)
 - `biometric_imports_id` on every major table links records to a specific import batch
+- Generated reports contain names and pay: write them only through `AttendanceProcessor::reportPath()` (`storage/app/reports`, outside the web root) and serve them through the logged-in `download.*` routes. Never write them under `public/`.
 - Do **not** call `exec()` or shell Python — all computation is in `ComputationService` and `AttendanceProcessor`

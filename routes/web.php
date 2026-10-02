@@ -178,7 +178,7 @@ Route::middleware('auth')->group(function () {
 
 
     Route::get('/download/converted-file', function () {
-        $path = public_path('python/ConvertedFile.csv'); // correct filename
+        $path = \App\Services\AttendanceProcessor::reportPath('ConvertedFile.csv'); // correct filename
 
         if (!file_exists($path)) {
             abort(404, 'File not found.');
@@ -191,7 +191,7 @@ Route::middleware('auth')->group(function () {
 
 
     Route::get('/download/payroll-file', function () {
-        $path = public_path('python/payroll file.xlsx');
+        $path = \App\Services\AttendanceProcessor::reportPath('payroll file.xlsx');
 
         if (!file_exists($path)) {
             abort(404, 'File not found.');
@@ -204,7 +204,7 @@ Route::middleware('auth')->group(function () {
 
 
     Route::get('/download/report-dtr', function () {
-        $path = public_path('python/reportdtr.xlsx');
+        $path = \App\Services\AttendanceProcessor::reportPath('reportdtr.xlsx');
 
         if (!file_exists($path)) {
             abort(404, 'File not found.');
@@ -218,7 +218,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/download/security', function () {
         // Written by SecurityReportService during report generation; absent when the
         // active batch has no SECURITY attendance.
-        $path = public_path('python/security.xlsx');
+        $path = \App\Services\AttendanceProcessor::reportPath('security.xlsx');
 
         if (!file_exists($path)) {
             abort(404, 'No security report for the active biometric import.');

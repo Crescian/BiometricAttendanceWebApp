@@ -935,6 +935,20 @@ class AttendanceProcessor
     }
 
     /**
+     * Where generated reports are written: storage/app/reports, outside the web root, so they are
+     * only reachable through the logged-in download routes (they hold names and pay).
+     */
+    public static function reportPath(string $name): string
+    {
+        $dir = storage_path('app/reports');
+        if (!is_dir($dir)) {
+            mkdir($dir, 0775, true);
+        }
+
+        return $dir.'/'.$name;
+    }
+
+    /**
      * The report files in public/python are also tracked in git, so a checkout leaves them owned by the
      * host user and read-only for the web server. The directory itself is writable, so remove such a
      * file and let the writer create a fresh one instead of failing with "Permission denied".
@@ -947,14 +961,14 @@ class AttendanceProcessor
     }
 
     /**
-     * Generate the payroll CSV (public/python/payroll file.csv) and the DTR
-     * (public/python/reportdtr.xlsx) for the payroll period $start..$end, from the same
+     * Generate the payroll CSV (reports/payroll file.csv) and the DTR
+     * (reports/reportdtr.xlsx) for the payroll period $start..$end, from the same
      * daily breakdown. Records from every biometric import dated in the period are included.
      */
     public function generatePayrollReport(string $start, string $end): array
     {
         // Never leave a DTR from an earlier run downloadable if this run fails.
-        $dtrPath = public_path('python/reportdtr.xlsx');
+        $dtrPath = self::reportPath('reportdtr.xlsx');
         if (file_exists($dtrPath)) {
             @unlink($dtrPath);
         }
@@ -982,7 +996,7 @@ class AttendanceProcessor
         }
 
         // Write payroll CSV
-        $outputPath = public_path('python/payroll file.csv');
+        $outputPath = self::reportPath('payroll file.csv');
         $dir = dirname($outputPath);
         if (!is_dir($dir)) {
             mkdir($dir, 0755, true);
@@ -1049,7 +1063,7 @@ class AttendanceProcessor
 
         // Keep the downloadable "payroll file.xlsx" (served by download.payrollfile)
         // in sync with the CSV — it used to be a static leftover that never got regenerated.
-        $xlsxPath = public_path('python/payroll file.xlsx');
+        $xlsxPath = self::reportPath('payroll file.xlsx');
         $spreadsheet = new Spreadsheet();
         $sheet = $spreadsheet->getActiveSheet();
         $sheet->fromArray($header, null, 'A1');
@@ -1061,7 +1075,7 @@ class AttendanceProcessor
 
         $this->generateDtrReport($breakdown, $dtrPath);
 
-        $securityPath   = public_path('python/security.xlsx');
+        $securityPath   = self::reportPath('security.xlsx');
         $securityGuards = app(SecurityReportService::class)
             ->generate($breakdown['start'], $breakdown['end'], $securityPath);
 

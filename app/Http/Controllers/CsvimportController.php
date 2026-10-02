@@ -220,7 +220,7 @@ class CsvimportController extends Controller
             // Evidence of exactly what was produced
             $outputs = [];
             foreach (['payroll file.csv', 'payroll file.xlsx', 'reportdtr.xlsx', 'security.xlsx'] as $name) {
-                $path = public_path('python/'.$name);
+                $path = AttendanceProcessor::reportPath($name);
                 if (is_file($path)) {
                     $outputs[$name] = ['bytes' => filesize($path), 'sha256' => hash_file('sha256', $path)];
                 }
@@ -538,7 +538,7 @@ class CsvimportController extends Controller
         })->delete();
 
         // Path to the .csv file
-        $path = public_path('python/payroll file.csv');
+        $path = AttendanceProcessor::reportPath('payroll file.csv');
 
         // Check if the file exists
         if (!file_exists($path)) {
