@@ -82,11 +82,16 @@ class OvertimeController extends Controller
                 $data->where('department', $department);
             }
 
-            // Order by first name
-            $data->orderBy('first_name', 'asc');
+            // Default order when the table asks for none; otherwise DataTables applies the
+            // clicked column (a fixed orderBy here would always take precedence over it).
+            if (!$request->filled('order')) {
+                $data->orderBy('record_date', 'asc')->orderBy('last_name', 'asc');
+            }
 
-            // Return results for DataTables
-            return DataTables::of($data)->make(true);
+            // Sorting by employee keeps each employee's days in date order
+            return DataTables::of($data)
+                ->orderColumn('last_name', 'last_name $1, first_name $1, record_date asc')
+                ->make(true);
         }
         return view('overtime.fetch');
     }

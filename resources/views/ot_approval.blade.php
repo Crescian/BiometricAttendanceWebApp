@@ -141,10 +141,10 @@
                                         </th>
                                         <th>ID</th>
                                         <th>Employee</th>
+                                        <th>Date</th>
                                         <th>First Name</th>
                                         <th>Department</th>
                                         <th>Area</th>
-                                        <th>Date</th>
                                         <th>Earliest Time</th>
                                         <th>Latest Time</th>
                                         <th>Schedule</th>
@@ -316,8 +316,10 @@
                             search: {
                                 search: $('#ot-search').val() || ''
                             },
+                            // By date (oldest first), then employee within each day
                             order: [
-                                [2, 'asc']
+                                [4, 'asc'],
+                                [3, 'asc']
                             ],
                             ajax: {
                                 url: "{{ route('overtime.fetch') }}",
@@ -342,6 +344,15 @@
                                     render: function(data, type, row) {
                                         return type === 'display' ? employeeCell(row.last_name, row.first_name) :
                                             `${row.last_name || ''}, ${row.first_name || ''}`;
+                                    }
+                                },
+                                {
+                                    data: 'record_date',
+                                    name: 'record_date',
+                                    render: function(data) {
+                                        if (!data) return '';
+                                        // Keep only the date part before the space
+                                        return data.split(' ')[0];
                                     }
                                 },
                                 {
@@ -384,15 +395,6 @@
                                 {
                                     data: 'attendance_area',
                                     name: 'attendance_area'
-                                },
-                                {
-                                    data: 'record_date',
-                                    name: 'record_date',
-                                    render: function(data) {
-                                        if (!data) return '';
-                                        // Keep only the date part before the space
-                                        return data.split(' ')[0];
-                                    }
                                 },
                                 { data: 'earliest_time', name: 'earliest_time' },
                                 { data: 'latest_time', name: 'latest_time' },
