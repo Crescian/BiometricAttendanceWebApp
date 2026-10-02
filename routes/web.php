@@ -48,6 +48,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::post('/audit-log/verify', [AuditLogController::class, 'verify'])->name('audit.verify');
         Route::get('/audit-log/{id}', [AuditLogController::class, 'show'])->whereNumber('id')->name('audit.show');
 
+        // Biometric imports: edit title/period, delete with all related data
+        Route::put('/biometric-history-list/{id}', [BiometricHistoryListController::class, 'update'])->whereNumber('id')->name('biometric-history-list.update');
+        Route::get('/biometric-history-list/{id}/delete-preview', [BiometricHistoryListController::class, 'deletePreview'])->whereNumber('id')->name('biometric-history-list.delete-preview');
+        Route::delete('/biometric-history-list/{id}', [BiometricHistoryListController::class, 'destroy'])->whereNumber('id')->name('biometric-history-list.destroy');
+
         // Manual Time In / Time Out on attendance records
         Route::post('/attendance-record', [AttendanceRecordController::class, 'store'])->name('attendance-record.store');
         Route::post('/attendance-record/{id}', [AttendanceRecordController::class, 'update'])->name('attendance-record.update');
