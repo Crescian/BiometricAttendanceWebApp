@@ -102,13 +102,14 @@ class OvertimeController extends Controller
     /**
      * Restrict a query to the departments the current user heads (admins see everything).
      */
-    /** Overtime page filters: date range, department and OT type (all optional). */
+    /** Overtime page filters: date range, department, schedule and OT type (all optional). */
     protected function applyFilters($query, Request $request)
     {
         $request->validate([
             'date_from' => ['nullable', 'date'],
             'date_to' => ['nullable', 'date'],
             'filter_department' => ['nullable', 'string', 'max:100'],
+            'filter_schedule' => ['nullable', 'string', 'max:100'],
             'ot_type' => ['nullable', 'in:ord_ot,nd,rd'],
         ]);
 
@@ -120,6 +121,9 @@ class OvertimeController extends Controller
         }
         if ($request->filled('filter_department')) {
             $query->where('department', $request->filter_department);
+        }
+        if ($request->filled('filter_schedule')) {
+            $query->where('schedule', $request->filter_schedule);
         }
 
         // Hours are "HH:MM" strings: a value has hours when it contains a non-zero digit
@@ -139,7 +143,7 @@ class OvertimeController extends Controller
         return $query;
     }
 
-    /** Choices for the Overtime page filters: departments and the date range of the loaded import. */
+    /** Choices for the Overtime page filters: departments, schedules and the date range of the loaded import. */
     public function filterOptions()
     {
         $scope = fn () => $this->restrictToOwnDepartments(
@@ -151,6 +155,10 @@ class OvertimeController extends Controller
         return response()->json([
             'departments' => $scope()->whereNotNull('department')->where('department', '<>', '')
                 ->distinct()->orderBy('department')->pluck('department'),
+            // By start hour, then end hour ("6-15" before "7-16" before "20-5")
+            'schedules' => $scope()->whereNotNull('schedule')->where('schedule', '<>', '')
+                ->distinct()->pluck('schedule')
+                ->sortBy(fn ($s) => array_map('intval', explode('-', $s) + [0, 0]))->values(),
             'min_date' => $range->min_date ?? null,
             'max_date' => $range->max_date ?? null,
         ]);

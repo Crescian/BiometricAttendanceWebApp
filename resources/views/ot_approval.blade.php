@@ -140,6 +140,9 @@
                     <select id="ot-filter-department" class="px-2 py-1.5 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 hidden" aria-label="Department">
                         <option value="">All departments</option>
                     </select>
+                    <select id="ot-filter-schedule" class="px-2 py-1.5 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 hidden" aria-label="Schedule">
+                        <option value="">All schedules</option>
+                    </select>
                     <select id="ot-filter-type" class="px-2 py-1.5 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500" aria-label="OT type">
                         <option value="">All OT types</option>
                         <option value="ord_ot">Ordinary OT</option>
@@ -307,6 +310,7 @@
                 date_from: $('#ot-filter-from').val(),
                 date_to: $('#ot-filter-to').val(),
                 filter_department: $('#ot-filter-department').val(),
+                filter_schedule: $('#ot-filter-schedule').val(),
                 ot_type: $('#ot-filter-type').val()
             };
         }
@@ -330,6 +334,10 @@
                 (r.departments || []).forEach(name => select.append($('<option>').val(name).text(name)));
                 // A department head with a single department has nothing to choose
                 select.toggleClass('hidden', (r.departments || []).length < 2);
+
+                const schedules = $('#ot-filter-schedule');
+                (r.schedules || []).forEach(name => schedules.append($('<option>').val(name).text(name)));
+                schedules.toggleClass('hidden', (r.schedules || []).length < 2);
                 $('#ot-filter-from, #ot-filter-to').attr({ min: r.min_date || null, max: r.max_date || null });
             });
         }
