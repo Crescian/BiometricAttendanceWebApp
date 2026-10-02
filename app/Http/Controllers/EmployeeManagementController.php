@@ -15,11 +15,6 @@ use Illuminate\Database\QueryException;
 class EmployeeManagementController extends Controller
 {
 
-    public function showImportForm()
-    {
-        return view('employee_management.import');
-    }
-
     public function import(Request $request)
     {
         $request->validate([

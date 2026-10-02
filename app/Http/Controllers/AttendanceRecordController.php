@@ -55,13 +55,6 @@ class AttendanceRecordController extends Controller
     }
 
 
-    /**
-     * Show attendance graph view
-     */
-    public function showAttendanceGraph()
-    {
-        return view('attendance.graph');
-    }
     public function index(Request $request)
     {
         $biometricImportId = $this->biometricHistoryList->getLoadedRecordId();

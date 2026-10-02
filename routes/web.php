@@ -79,7 +79,6 @@ Route::middleware('auth')->group(function () {
     Route::post('/employeesStore', [EmployeeManagementController::class, 'store'])->name('employees.store');
     Route::delete('/employees/{id}', [EmployeeManagementController::class, 'destroy'])->name('employees.destroy');
     Route::post('/employees', [EmployeeManagementController::class, 'fetch'])->name('employees.fetchs');
-    Route::get('/biometricData', [EmployeeManagementController::class, 'showImportForm'])->name('employee.import.form');
     Route::post('/biometricData', [EmployeeManagementController::class, 'import'])->name('employee.import');
     Route::post('/export-biometric-csv', [EmployeeManagementController::class, 'exportToCsv'])->name('employee.export.csv');
     Route::get('/fetch-uniqueids', [EmployeeManagementController::class, 'fetchEmployeeName'])->name('employee.fetch.employeename');
@@ -167,7 +166,6 @@ Route::middleware('auth')->group(function () {
     Route::post('/leave/bulk-approve-by', [LeaveController::class, 'bulkApproveBy'])->name('leave.bulkApproveBy');
 
     Route::get('/attendance-record/fetch', [AttendanceRecordController::class, 'index'])->name('attendance-record.fetch');
-    Route::get('/attendance/graph', [AttendanceRecordController::class, 'showAttendanceGraph'])->name('attendance.graph');
     Route::get('/attendance/summary', [AttendanceRecordController::class, 'getAttendanceSummary'])->name('attendance.summary');
 
 
