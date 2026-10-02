@@ -126,7 +126,12 @@ class EmployeeManagementController extends Controller
                 'report_to',
                 'schedule',
                 'status',
-            ])->orderBy('unique_id', 'asc');
+            ]);
+
+            // Fixed order only when the table asks for none; otherwise DataTables applies the clicked column
+            if (!$request->filled('order')) {
+                $data->orderBy('unique_id', 'asc');
+            }
 
             // Apply department filter only if userRole is not admin
             if ($userRole !== 'admin' && $department) {

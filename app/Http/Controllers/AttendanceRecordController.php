@@ -93,16 +93,21 @@ class AttendanceRecordController extends Controller
                     'attendance_records.created_at'
                 )
                 // ✅ Filter by currently loaded Biometric Import ID
-                ->where('attendance_records.biometric_imports_id', $biometricImportId)
-                ->orderBy('attendance_records.record_date', 'desc');
+                ->where('attendance_records.biometric_imports_id', $biometricImportId);
+
+            // Fixed order only when the table asks for none; otherwise DataTables applies the clicked column
+            if (!$request->filled('order')) {
+                $data->orderBy('attendance_records.record_date', 'desc')->orderBy('employee_management.employee_name', 'asc');
+            }
 
             // ✅ Apply department filter if user is not admin
             if ($userRole === 'user' && $department) {
                 $data->where('employee_management.department', $department);
             }
 
-            // ✅ Return data as DataTable JSON
+            // ✅ Return data as DataTable JSON (sorting by employee keeps their days in date order)
             return DataTables::of($data)
+                ->orderColumn('employee_management.employee_name', 'employee_management.employee_name $1, attendance_records.record_date asc')
                 ->filterColumn('employee_name', function ($query, $keyword) {
                     $query->whereRaw('LOWER(employee_management.employee_name) LIKE ?', ["%{$keyword}%"]);
                 })

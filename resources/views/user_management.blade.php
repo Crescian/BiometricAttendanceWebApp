@@ -186,6 +186,7 @@
                         columns: [
                             {
                                 data: 'name',
+                                orderable: true,
                                 className: 'all',
                                 render: function(data, type, row) {
                                     if (type !== 'display') return `${data} ${row.email}`;
@@ -236,6 +237,7 @@
                             },
                             {
                                 data: 'joined',
+                                orderable: true,
                                 render: (data, type) => type === 'display' ? formatDate(data) : (data || '')
                             },
                             {

@@ -326,6 +326,8 @@
                 order: options.order || [
                     [1, 'asc']
                 ],
+                // Only the columns marked orderable: true can be sorted
+                columnDefs: [{ targets: '_all', orderable: false }],
                 buttons: exportAndColumnButtons(),
                 columns: [expandControlColumn, ...options.columns],
                 language: {

@@ -537,6 +537,7 @@
                         columns: [
                             {
                                 data: 'title',
+                                orderable: true,
                                 className: 'all font-medium text-gray-900',
                                 render: $.fn.dataTable.render.text()
                             },
@@ -552,6 +553,7 @@
                             },
                             {
                                 data: 'period_start',
+                                orderable: true,
                                 defaultContent: '',
                                 render: (data, type, row) => type === 'display' ? formatPeriod(row.period_start, row.period_end) : dateOnly(data)
                             },
@@ -567,6 +569,7 @@
                             { data: 'imported_by', defaultContent: '', render: $.fn.dataTable.render.text() },
                             {
                                 data: (row) => row.imported_at || row.created_at, // older imports have no imported_at
+                                orderable: true,
                                 render: (data, type) => type === 'display' && data
                                     ? new Date(data).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })
                                     : data

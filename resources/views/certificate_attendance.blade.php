@@ -415,6 +415,8 @@
                             search: {
                                 search: $('#coa-search').val() || ''
                             },
+                            // Only the columns marked orderable: true can be sorted
+                            columnDefs: [{ targets: '_all', orderable: false }],
                             order: [
                                 [2, 'asc']
                             ],
@@ -437,6 +439,7 @@
                                 bulk_coa.checkboxColumn(),
                                 {
                                     data: 'employee_name',
+                                    orderable: true,
                                     name: 'employee_name',
                                     className: 'all',
                                     render: function(data, type) {
@@ -479,6 +482,7 @@
                                 },
                                 {
                                     data: 'date',
+                                    orderable: true,
                                     name: 'date',
                                     render: dateOnlyCell
                                 },

@@ -412,6 +412,8 @@
                             search: {
                                 search: $('#emp-search').val() || ''
                             },
+                            // Only the columns marked orderable: true can be sorted
+                            columnDefs: [{ targets: '_all', orderable: false }],
                             order: [
                                 [1, 'asc']
                             ],
@@ -427,11 +429,13 @@
                                 expandControlColumn,
                                 {
                                     data: 'unique_id',
+                                    orderable: true,
                                     name: 'unique_id',
                                     className: 'font-semibold text-gray-900'
                                 },
                                 {
                                     data: 'employee_name',
+                                    orderable: true,
                                     name: 'employee_name',
                                     className: 'all',
                                     render: function(data, type) {

@@ -336,10 +336,17 @@ class ScheduleAdjustmentController extends Controller
                 })
                 ->when($userRole === 'user' && $department, function ($query) use ($department) {
                     $query->where('employee_management.department', $department);
-                })
-                ->orderBy('employee_management.employee_name', 'asc');
+                });
 
-            return DataTables::of($data)->make(true);
+            // Fixed order only when the table asks for none; otherwise DataTables applies the clicked column
+            if (!$request->filled('order')) {
+                $data->orderBy('employee_management.employee_name', 'asc');
+            }
+
+            // Sorting by employee keeps their days in date order
+            return DataTables::of($data)
+                ->orderColumn('employee_name', 'employee_management.employee_name $1, schedule_adjustments.record_date asc')
+                ->make(true);
         }
 
         return view('schedule_adjustment');

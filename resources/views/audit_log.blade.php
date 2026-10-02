@@ -187,6 +187,8 @@
             lengthMenu: [25, 50, 100, 250],
             pageLength: 50,
             dom: 'rt<"flex flex-wrap justify-between items-center gap-2 px-3 py-2 border-t border-gray-200 text-xs text-gray-600"lip>',
+            // Only the columns marked orderable: true can be sorted
+            columnDefs: [{ targets: '_all', orderable: false }],
             order: [[1, 'desc']],
             ajax: {
                 url: "{{ route('audit.data') }}",
@@ -206,6 +208,7 @@
                 expandControlColumn,
                 {
                     data: 'occurred_at',
+                    orderable: true,
                     name: 'occurred_at',
                     render: (data, type) => type === 'display'
                         ? `<span title="${esc(new Date(data).toISOString())} UTC">${formatTime(data)}</span>`
@@ -213,6 +216,7 @@
                 },
                 {
                     data: 'actor_name',
+                    orderable: true,
                     name: 'actor_name',
                     className: 'all',
                     render: function(data, type, row) {

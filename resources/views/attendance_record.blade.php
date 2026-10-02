@@ -288,7 +288,10 @@
                             search: {
                                 search: $('#ar-search').val() || ''
                             },
+                            // Only the columns marked orderable: true can be sorted
+                            columnDefs: [{ targets: '_all', orderable: false }],
                             order: [
+                                [6, 'desc'],
                                 [1, 'asc']
                             ],
                             ajax: {
@@ -305,6 +308,7 @@
                                 expandControlColumn,
                                 {
                                     data: 'employee_name',
+                                    orderable: true,
                                     name: 'employee_management.employee_name',
                                     className: 'all',
                                     render: function(data, type) {
@@ -344,6 +348,7 @@
                                 },
                                 {
                                     data: 'record_date',
+                                    orderable: true,
                                     name: 'attendance_records.record_date',
                                     render: dateOnlyCell
                                 },

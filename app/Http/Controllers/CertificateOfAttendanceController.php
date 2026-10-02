@@ -254,8 +254,12 @@ class CertificateOfAttendanceController extends Controller
                     'certificate_attendance.date',
                     'certificate_attendance.approval_status'
                 )
-                ->where('certificate_attendance.approval_status', $status)
-                ->orderBy('employee_management.employee_name', 'asc');
+                ->where('certificate_attendance.approval_status', $status);
+
+            // Fixed order only when the table asks for none; otherwise DataTables applies the clicked column
+            if (!$request->filled('order')) {
+                $data->orderBy('employee_management.employee_name', 'asc');
+            }
 
             // ✅ Apply biometric_imports_id filter only if it has a value
             if (!empty($biometricImportId)) {
@@ -268,6 +272,8 @@ class CertificateOfAttendanceController extends Controller
             }
 
             return DataTables::of($data)
+                // Sorting by employee keeps their days in date order
+                ->orderColumn('employee_name', 'employee_management.employee_name $1, certificate_attendance.date asc')
                 ->filterColumn('employee_name', function($query, $keyword) {
                     $query->whereRaw('LOWER(employee_management.employee_name) LIKE ?', ["%{$keyword}%"]);
                 })

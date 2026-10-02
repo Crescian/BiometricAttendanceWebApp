@@ -389,6 +389,8 @@
                             search: {
                                 search: $('#leave-search').val() || ''
                             },
+                            // Only the columns marked orderable: true can be sorted
+                            columnDefs: [{ targets: '_all', orderable: false }],
                             order: [
                                 [2, 'asc']
                             ],
@@ -411,6 +413,7 @@
                                 bulk_leave.checkboxColumn(),
                                 {
                                     data: 'employee_name',
+                                    orderable: true,
                                     name: 'employee_management.employee_name',
                                     className: 'all',
                                     render: function(data, type) {
@@ -430,6 +433,7 @@
                                 },
                                 {
                                     data: 'record_date',
+                                    orderable: true,
                                     name: 'record_date',
                                     render: dateOnlyCell
                                 },

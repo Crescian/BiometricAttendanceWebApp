@@ -143,8 +143,12 @@ class LeaveController extends Controller
                     'leaves.status',
                     'leaves.created_at',
                     'leaves.updated_at'
-                )
-                ->orderBy('employee_management.employee_name', 'asc');
+                );
+
+            // Fixed order only when the table asks for none; otherwise DataTables applies the clicked column
+            if (!$request->filled('order')) {
+                $data->orderBy('employee_management.employee_name', 'asc');
+            }
 
             // ✅ Apply biometric_imports_id filter only if it has a value
             if (!empty($biometricImportId)) {
@@ -161,8 +165,9 @@ class LeaveController extends Controller
                 $data->where('employee_management.department', $department);
             }
 
-            // ✅ Return DataTables JSON
+            // ✅ Return DataTables JSON (sorting by employee keeps their days in date order)
             return DataTables::of($data)
+                ->orderColumn('employee_management.employee_name', 'employee_management.employee_name $1, leaves.record_date asc')
                 ->filterColumn('employee_name', function($query, $keyword) {
                     $query->whereRaw('LOWER(employee_management.employee_name) LIKE ?', ["%{$keyword}%"]);
                 })

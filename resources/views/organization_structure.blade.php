@@ -284,7 +284,7 @@
                         search: '#org-search',
                         emptyText: 'No business units found.',
                         columns: [
-                            { data: 'name', className: 'all font-semibold text-gray-900', render: $.fn.dataTable.render.text() },
+                            { data: 'name', orderable: true, className: 'all font-semibold text-gray-900', render: $.fn.dataTable.render.text() },
                             { data: 'head', render: (data, type) => headCell(data, type) },
                             orgActions('bu')
                         ]
@@ -309,7 +309,7 @@
                         search: '#org-search',
                         emptyText: 'No companies found.',
                         columns: [
-                            { data: 'name', className: 'all font-semibold text-gray-900', render: $.fn.dataTable.render.text() },
+                            { data: 'name', orderable: true, className: 'all font-semibold text-gray-900', render: $.fn.dataTable.render.text() },
                             { data: 'head', render: (data, type) => headCell(data, type) },
                             orgActions('company')
                         ]
@@ -330,7 +330,7 @@
                         search: '#org-search',
                         emptyText: 'No departments found.',
                         columns: [
-                            { data: 'department_name', className: 'all', render: (data, type) => type === 'display' ? colorBadgeCell(data) : data },
+                            { data: 'department_name', orderable: true, className: 'all', render: (data, type) => type === 'display' ? colorBadgeCell(data) : data },
                             { data: 'department_head_name', defaultContent: '', render: (data, type) => headCell(data, type) },
                             orgActions('department')
                         ]
