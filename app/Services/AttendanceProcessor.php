@@ -267,6 +267,20 @@ class AttendanceProcessor
     }
 
     /**
+     * Whether a schedule code ("16-1", "22-7") is paired as a night shift: any shift that ends at
+     * or before its start hour crosses midnight. The late-evening codes 15-23 / 15-24 (mirrors
+     * python nightShiftCodes) also pair overnight, since their clock-out can fall after midnight.
+     */
+    public static function isOvernightSchedule(?string $code): bool
+    {
+        if (!$code || !preg_match('/^\s*(\d{1,2})\s*-\s*(\d{1,2})\s*$/', $code, $m)) {
+            return false;
+        }
+
+        return (int) $m[2] % 24 <= (int) $m[1] % 24 || in_array("$m[1]-$m[2]", ['15-23', '15-24']);
+    }
+
+    /**
      * Process punches of a single employee (reliever / night / day)
      * Returns list of simple records with fields compatible with attendance_records
      */
@@ -356,16 +370,15 @@ class AttendanceProcessor
             return $records;
         }
 
-        // Non-reliever: decide night-vs-day using codes (mirrors python nightShiftCodes)
-        $nightShiftCodes = ["18-6","19-7","19-4","20-5","15-23","15-24","23-7","23-8"];
+        // Non-reliever: decide night-vs-day from the schedule code
         $hasNightShift = false;
         $tempForEmployee = $tempSched[$employeeName] ?? [];
         if (!empty($tempForEmployee)) {
             foreach ($tempForEmployee as $d=>$sc) {
-                if (in_array($sc, $nightShiftCodes)) { $hasNightShift = true; break; }
+                if (self::isOvernightSchedule($sc)) { $hasNightShift = true; break; }
             }
         }
-        if (!$hasNightShift && $normalSchedule && in_array($normalSchedule, $nightShiftCodes)) $hasNightShift = true;
+        if (!$hasNightShift && self::isOvernightSchedule($normalSchedule)) $hasNightShift = true;
 
         if ($hasNightShift) {
             // night pairing: find evening punches >= 14 and include punches within 12 hours

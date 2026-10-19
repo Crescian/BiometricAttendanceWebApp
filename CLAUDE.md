@@ -80,7 +80,8 @@ php artisan serve
 1. Upload CSV/XLSX → `CsvimportController::uploadCSV()` → `AttendanceProcessor::processFile()`
 2. File is stored at `storage/app/public/python/DailyAttendance.<ext>`
 3. Punches grouped by Personnel ID, paired into earliest/latest per day
-4. Night-shift employees (codes: `18-6`, `19-7`, etc.) use cross-midnight pairing
+4. Night-shift employees use cross-midnight pairing (evening IN + next-morning OUT). A schedule is overnight when it ends at or before its start hour (`16-1`, `22-7`, `19-7`), plus `15-23` / `15-24`: always check with `AttendanceProcessor::isOvernightSchedule()`, never a hard-coded list of codes (a missing code pairs the shift as a day shift and payroll shows 0 Hours Worked). `SecurityReportService::NIGHT_SHIFT_CODES` and `ComputationService::adjustShiftWithSnapshot()` still have old copies of the list and should move to the helper.
+   - Changing an employee's schedule doesn't re-pair attendance that's already stored, and a re-upload skips existing days. Fix such rows directly.
 5. Records inserted into `attendance_records`; OT seeded into `overtimes`
 6. `BiometricHistoryList` with `status='load'` controls which import is "active"
 
