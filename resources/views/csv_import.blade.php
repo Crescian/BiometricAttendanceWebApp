@@ -530,6 +530,7 @@
 
                     const table = renderClientTable('#imports-table', {
                         data: rows,
+                        reload: loadImportedCsvList,
                         toolbar: '#imports-toolbar-buttons',
                         search: '#imports-search',
                         emptyText: 'No biometric data imports yet. Use Import Now to add one.',
@@ -801,6 +802,7 @@
          * ------------------------------*/
         const $uploadArea = $('#uploadArea');
         let csvDataGlobal = '';
+        const MAX_UPLOAD_MB = 20;
 
         window.handleFiles = function(files) {
             $('.csv-output').show();
@@ -818,6 +820,14 @@
                 return;
             }
 
+            // Same limit as PHP (docker/php/uploads.ini); the proxy refuses bigger bodies with a 413
+            if (file.size > MAX_UPLOAD_MB * 1024 * 1024) {
+                Swal.fire('File too large',
+                    `The file is ${(file.size / 1024 / 1024).toFixed(1)} MB; the maximum is ${MAX_UPLOAD_MB} MB.`, 'warning');
+                return;
+            }
+
+            currentBiometricImportId = null; // set again once this upload succeeds
             $('.detailsLoader, #loaderOverlay').show();
 
             const formData = new FormData();
@@ -871,6 +881,12 @@
          *  UPLOAD / IMPORT LOGIC
          * ------------------------------*/
         window.uploadCSV = function() {
+            // The upload creates the import and its attendance; without it there is nothing to import
+            if (!currentBiometricImportId) {
+                Swal.fire('Upload the file first',
+                    'Upload the biometric file first; the last upload did not finish.', 'warning');
+                return;
+            }
             $.ajax({
                 url: "{{ route('upload.exist') }}",
                 type: 'POST',
@@ -978,7 +994,13 @@
         function handleAjaxError(xhr, status, error) {
             $('.detailsLoader, #loaderOverlay').hide();
             console.error('AJAX Error:', error);
-            Swal.fire('Error', xhr.responseJSON?.message || 'Something went wrong. Please try again.', 'error');
+            let message = xhr.responseJSON?.message;
+            if (xhr.status === 413) {
+                message = `The file is too large for the server (max ${MAX_UPLOAD_MB} MB).`;
+            } else if (!message) {
+                message = 'Something went wrong' + (xhr.status ? ` (HTTP ${xhr.status})` : '') + '. Please try again.';
+            }
+            Swal.fire('Error', message, 'error');
         }
 
         window.closeModal = () => $('#csvModal').hide();

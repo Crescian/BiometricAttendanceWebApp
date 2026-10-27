@@ -456,50 +456,28 @@ class BiometricHistoryListController extends Controller
         // the default set from the punch dates during upload.
         $period = array_filter($request->only('period_start', 'period_end'));
 
-        // If uploadCSV() already created the row for this import (the normal path),
-        // fill in the details the user entered on the "Import Now" step rather than
-        // creating a second row — attendance_records/overtimes are already tied to
-        // the id created during upload, so a new row here would orphan them again.
-        if ($request->filled('id')) {
-            $record = BiometricHistoryList::findOrFail($request->id);
-            $record->update([
-                'title' => $request->title,
-                'imported_by' => $request->imported_by,
-                'total_rows' => $request->total_rows,
-            ] + $period);
-
+        // The upload (AttendanceProcessor::processFile()) creates the import row and its attendance;
+        // "Import Now" only fills in the details the user entered. Without that id the upload did
+        // not finish (e.g. the file was rejected as too large), and creating a row here would leave
+        // an empty import loaded in place of the real one.
+        if (!$request->filled('id')) {
             return response()->json([
-                'message' => 'Biometric import record updated successfully.',
-                'id' => $record->id,
-                'data' => $record
-            ], 200);
+                'message' => 'No uploaded file for this import. Upload the biometric file first.',
+            ], 422);
         }
 
-        // 1️⃣ Unload all previously "loaded" records
-        $unloaded = BiometricHistoryList::where('status', 'load')->pluck('id')->all();
-        BiometricHistoryList::where('status', 'load')->update(['status' => 'unload']);
-        if ($unloaded) {
-            AuditLogger::record('biometric_import.unloaded', [
-                'category' => 'import', 'action' => 'update',
-                'description' => 'Unloaded import(s) #'.implode(', #', $unloaded).' for a new import',
-                'old' => ['status' => 'load'], 'new' => ['status' => 'unload'],
-                'metadata' => ['unloaded_ids' => $unloaded],
-            ]);
-        }
-
-        $BiometricHistoryList = BiometricHistoryList::create([
+        $record = BiometricHistoryList::findOrFail($request->id);
+        $record->update([
             'title' => $request->title,
-            'status' => 'load',
             'imported_by' => $request->imported_by,
             'total_rows' => $request->total_rows,
-            'imported_at' => now(), // current date and time
         ] + $period);
 
         return response()->json([
-            'message' => 'Biometric import record created successfully.',
-            'id' => $BiometricHistoryList->id,
-            'data' => $BiometricHistoryList
-        ], 201);
+            'message' => 'Biometric import record updated successfully.',
+            'id' => $record->id,
+            'data' => $record
+        ], 200);
     }
 
     /**

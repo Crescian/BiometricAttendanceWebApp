@@ -14,17 +14,28 @@ class CustomDateController extends Controller
      * @return \Illuminate\Http\Response
      */
 
-    // ✅ Get only upcoming holidays (Sunday rest days are left out so they don't crowd the list)
+    // Holidays of the current month for the dashboard card (Sunday rest days are left out so they
+    // don't crowd the list), plus the next holiday after this month for when the month has none.
     public function index()
     {
-        $today = Carbon::today();
+        $start = Carbon::today()->startOfMonth();
+        $end = Carbon::today()->endOfMonth();
 
-        $dates = CustomDate::whereDate('record_date', '>=', $today)
+        $holidays = CustomDate::whereBetween('record_date', [$start, $end->copy()->endOfDay()])
             ->where('holiday_type', '<>', 'Rest Day')
             ->orderBy('record_date', 'asc')
             ->get();
 
-        return response()->json($dates);
+        $next = CustomDate::whereDate('record_date', '>', $end)
+            ->where('holiday_type', '<>', 'Rest Day')
+            ->orderBy('record_date', 'asc')
+            ->first(['record_date', 'title', 'holiday_type']);
+
+        return response()->json([
+            'month' => $start->format('F Y'),
+            'holidays' => $holidays,
+            'next' => $next,
+        ]);
     }
 
     /**

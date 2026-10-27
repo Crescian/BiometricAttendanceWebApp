@@ -198,6 +198,7 @@
                 }
             },
             buttons: [
+                refreshButton(),
                 toolbarButton({
                     extend: 'colvis',
                     text: '<i class="fa-solid fa-table-columns text-gray-500"></i> Columns',

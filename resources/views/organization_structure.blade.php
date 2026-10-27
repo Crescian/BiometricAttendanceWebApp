@@ -280,6 +280,7 @@
                     $('#bu-count').text(rows.length);
                     renderClientTable('#business-unit-table', {
                         data: rows,
+                        reload: loadTables,
                         toolbar: '#org-toolbar-bu',
                         search: '#org-search',
                         emptyText: 'No business units found.',
@@ -305,6 +306,7 @@
                     $('#company-count').text(rows.length);
                     renderClientTable('#company-table', {
                         data: rows,
+                        reload: loadTables,
                         toolbar: '#org-toolbar-company',
                         search: '#org-search',
                         emptyText: 'No companies found.',
@@ -326,6 +328,7 @@
                     $('#department-count').text(rows.length);
                     renderClientTable('#department-table', {
                         data: rows,
+                        reload: loadTables,
                         toolbar: '#org-toolbar-department',
                         search: '#org-search',
                         emptyText: 'No departments found.',

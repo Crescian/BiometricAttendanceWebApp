@@ -182,8 +182,8 @@
                         location.reload();
                     }, 2000); // 0.8 second delay (for message flash)
                 },
-                error: function() {
-                    msg.innerHTML = 'Upload failed. Please try again.';
+                error: function(xhr) {
+                    msg.textContent = (xhr.responseJSON && xhr.responseJSON.message) || 'Upload failed. Please try again.';
                     msg.className = 'mt-4 text-red-600';
                 },
                 complete: function() {

@@ -7,7 +7,7 @@
         <div class="flex flex-wrap items-center justify-between gap-3 px-4 pt-4 pb-3">
             <h1 class="text-xl font-semibold text-gray-900">{{ __('Employee Management') }}</h1>
             <div class="flex flex-wrap items-center gap-2">
-                <button type="button" x-data @click.prevent="$dispatch('open-modal', 'add-employee')"
+                <button type="button" x-data @click.prevent="$dispatch('open-modal', 'add-employee'); openAddEmployee()"
                     class="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-white bg-green-600 rounded-md hover:bg-green-700 shadow-sm">
                     <i class="fa-solid fa-plus"></i>
                     Add
@@ -82,9 +82,11 @@
 
                 <!-- Unique ID -->
                 <div>
-                    <label class="block text-sm font-semibold text-gray-700 mb-2">Unique ID</label>
-                    <input id="employeeUniqueId" type="text"
-                        class="w-full px-4 py-3 border border-gray-300 rounded-lg bg-gray-50 text-gray-600" readonly>
+                    <label for="employeeUniqueId" class="block text-sm font-semibold text-gray-700 mb-2">Unique ID</label>
+                    <input id="employeeUniqueId" type="text" onblur="checkUniqueIdConflict('employeeUniqueId', 'uniqueIdConflict', globalID, originalUniqueId)"
+                        class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 transition-all duration-200">
+                    <p class="mt-2 text-xs text-gray-500">Changing this also updates the ID on the employee's overtime records.</p>
+                    <p id="uniqueIdConflict" class="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2 hidden"></p>
                 </div>
 
                 <!-- Name Fields -->
@@ -188,10 +190,29 @@
 
                 <!-- Unique ID -->
                 <div>
-                    <label for="employeeAddUniqueId" class="block text-sm font-semibold text-gray-700 mb-2">Unique
-                        ID</label>
+                    <div class="flex items-center gap-1.5 mb-2">
+                        <label for="employeeAddUniqueId" class="block text-sm font-semibold text-gray-700">Unique ID</label>
+                        {{-- Explanation on hover / keyboard focus --}}
+                        <span class="relative z-[100] inline-flex group">
+                            <i class="fa-solid fa-circle-info text-gray-400 hover:text-gray-600 group-focus-within:text-gray-600 cursor-help"
+                                tabindex="0" role="img" aria-label="How is the Unique ID suggested?"
+                                aria-describedby="add-unique-id-tip"></i>
+                            <span id="add-unique-id-tip" role="tooltip"
+                                class="invisible opacity-0 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100 transition-opacity absolute left-1/2 -translate-x-1/2 top-full mt-2 z-[9999] w-72 p-2.5 rounded-md bg-gray-900 text-white text-[11px] leading-snug font-normal shadow-lg">
+                                <strong class="block mb-1">Suggested Unique ID</strong>
+                                Filled in with the next ID in the sequence:
+                                <span class="font-mono">TMNG-&lt;year+month&gt;-&lt;next number&gt;</span>, or
+                                <span class="font-mono">SC-…-&lt;next number&gt;</span> for Security.
+                                <span class="block mt-1.5">You can type a different ID. If it already belongs to
+                                someone, you'll be asked to give them a new one.</span>
+                            </span>
+                        </span>
+                    </div>
                     <input type="text" id="employeeAddUniqueId" name="unique_id"
+                        oninput="updateAddUniqueIdHint()" onblur="checkUniqueIdConflict('employeeAddUniqueId', 'addUniqueIdConflict')"
                         class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 transition-all duration-200">
+                    <p id="addUniqueIdHint" class="mt-2 text-xs text-gray-500"></p>
+                    <p id="addUniqueIdConflict" class="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2 hidden"></p>
                 </div>
 
                 <!-- Name Fields -->
@@ -218,7 +239,7 @@
                         {{-- <input type="text" id="employeeAddDepartment" name="department"
                             class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 transition-all duration-200"> --}}
 
-                        <select id="employeeAddDepartment" name="employeeAddDepartment"
+                        <select id="employeeAddDepartment" name="employeeAddDepartment" onchange="suggestAddUniqueId()"
                             class="w-full px-4 py-3 border border-gray-300 rounded-lg bg-white text-gray-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 transition-all duration-200">
                             <option value="" disabled selected class="text-gray-400">Select department</option>
                         </select>
@@ -514,6 +535,133 @@
             });
         }
 
+        // The Unique ID the edit modal loaded with; offered back to whoever holds the new one (a swap)
+        let originalUniqueId = null;
+
+        function escapeHtml(value) {
+            return $('<div>').text(value ?? '').html();
+        }
+
+        function describeEmployee(emp) {
+            return emp.employee_name + (emp.department ? ' (' + emp.department + ')' : '');
+        }
+
+        // Warn before saving when the typed Unique ID already belongs to someone else.
+        // excludeId / unchangedId: the employee being edited and the ID it already has.
+        function checkUniqueIdConflict(inputId, noteId, excludeId, unchangedId) {
+            const note = $('#' + noteId);
+            const value = $('#' + inputId).val().trim();
+            if (value === '' || value === unchangedId) {
+                note.addClass('hidden').text('');
+                return;
+            }
+            $.get("{{ route('employees.checkUniqueId') }}", { unique_id: value, exclude_id: excludeId }, function(res) {
+                if ($('#' + inputId).val().trim() !== value) return; // typed on since
+                if (res.conflict) {
+                    note.text('Already used by ' + describeEmployee(res.employee) +
+                        ". You'll be asked to give them a new ID when you save.").removeClass('hidden');
+                } else {
+                    note.addClass('hidden').text('');
+                }
+            });
+        }
+
+        // The Add modal's suggested Unique ID; replaced on department change only while still in the field
+        let suggestedAddUniqueId = null;
+
+        function openAddEmployee() {
+            $('#employeeAddUniqueId').val('');
+            $('#addUniqueIdConflict').addClass('hidden').text('');
+            suggestedAddUniqueId = null;
+            suggestAddUniqueId();
+        }
+
+        function suggestAddUniqueId() {
+            const department = $('#employeeAddDepartment').val() || '';
+            $.get("{{ route('employees.suggestUniqueId') }}", { department: department }, function(res) {
+                if (($('#employeeAddDepartment').val() || '') !== department) return; // department changed since
+                const input = $('#employeeAddUniqueId');
+                const current = input.val().trim();
+                if (current === '' || current === suggestedAddUniqueId) {
+                    input.val(res.unique_id);
+                    $('#addUniqueIdConflict').addClass('hidden').text('');
+                }
+                suggestedAddUniqueId = res.unique_id;
+                updateAddUniqueIdHint();
+            });
+        }
+
+        function useSuggestedAddUniqueId() {
+            $('#employeeAddUniqueId').val(suggestedAddUniqueId);
+            $('#addUniqueIdConflict').addClass('hidden').text('');
+            updateAddUniqueIdHint();
+        }
+
+        function updateAddUniqueIdHint() {
+            const hint = $('#addUniqueIdHint');
+            const current = $('#employeeAddUniqueId').val().trim();
+            if (!suggestedAddUniqueId) {
+                hint.text('');
+            } else if (current === suggestedAddUniqueId) {
+                hint.html('<i class="fa-solid fa-wand-magic-sparkles mr-1"></i>Suggested next ID');
+            } else {
+                hint.html('Custom ID · <button type="button" class="text-blue-600 hover:underline" onclick="useSuggestedAddUniqueId()">Use suggested (' +
+                    escapeHtml(suggestedAddUniqueId) + ')</button>');
+            }
+        }
+
+        // The new Unique ID belongs to another employee: give them a new one (the old ID, i.e. a swap,
+        // by default) and save both together, or go back to the form
+        function resolveUniqueIdConflict(emp, newUniqueId) {
+            Swal.fire({
+                icon: 'warning',
+                title: 'Unique ID already in use',
+                width: '560px',
+                html: '<div class="text-left text-sm space-y-3">' +
+                    '<p><b>' + escapeHtml(newUniqueId) + '</b> belongs to another employee. To prevent two employees ' +
+                    'sharing an ID, they need a new one too.</p>' +
+                    '<div class="rounded-lg border border-gray-200 bg-gray-50 p-3">' +
+                    '<div><span class="text-gray-500">Name:</span> ' + escapeHtml(emp.employee_name) + '</div>' +
+                    '<div><span class="text-gray-500">Department:</span> ' + escapeHtml(emp.department || '—') + '</div>' +
+                    '<div><span class="text-gray-500">Status:</span> ' + escapeHtml(emp.status || '—') + '</div>' +
+                    '<div><span class="text-gray-500">Current ID:</span> ' + escapeHtml(emp.unique_id) + '</div>' +
+                    '</div>' +
+                    '<label for="conflictNewUniqueId" class="block font-semibold text-gray-700">New Unique ID for ' +
+                    escapeHtml(emp.employee_name) + '</label>' +
+                    '<input id="conflictNewUniqueId" class="swal2-input !m-0 !w-full" value="' + escapeHtml(originalUniqueId) + '">' +
+                    '<p class="text-xs text-gray-500">Leave as is to swap the two IDs.</p>' +
+                    '</div>',
+                showCancelButton: true,
+                confirmButtonText: 'Update both',
+                cancelButtonText: 'Cancel',
+                showLoaderOnConfirm: true,
+                allowOutsideClick: () => !Swal.isLoading(),
+                preConfirm: () => {
+                    const conflictNewUniqueId = $('#conflictNewUniqueId').val().trim();
+                    if (conflictNewUniqueId === '') {
+                        Swal.showValidationMessage('Enter a new Unique ID for ' + emp.employee_name);
+                        return false;
+                    }
+                    return new Promise((resolve) => {
+                        sendEmployeeUpdate({ conflict_employee_id: emp.id, conflict_new_unique_id: conflictNewUniqueId })
+                            .done(resolve)
+                            .fail((xhr) => {
+                                const json = xhr.responseJSON || {};
+                                const firstError = json.errors ? Object.values(json.errors)[0][0] : null;
+                                Swal.showValidationMessage(firstError || json.message || 'Failed to update employee data');
+                                resolve(false);
+                            });
+                    });
+                }
+            }).then((result) => {
+                if (result.isConfirmed && result.value) {
+                    employeeUpdated();
+                } else if (result.isDismissed) {
+                    window.dispatchEvent(new CustomEvent('open-modal', { detail: 'edit-employee' })); // back to the form, edits intact
+                }
+            });
+        }
+
         function editFunction(id) {
             globalID = id;
             $.ajax({
@@ -537,6 +685,8 @@
                     console.log(data);
                     // Populate modal fields with employee data
                     $('#employeeUniqueId').val(data.unique_id);
+                    originalUniqueId = data.unique_id;
+                    $('#uniqueIdConflict').addClass('hidden').text('');
                     $('#employeeFirstName').val(firstName);
                     $('#employeeLastName').val(lastName);
                     $('#basicSalary').val(data.basic_salary);
@@ -553,51 +703,58 @@
             });
         }
 
-        function updateFunction() {
-            let employeeUniqueId = $('#employeeUniqueId').val();
+        // PUT the edit form; `extra` carries the conflict resolution when the new Unique ID was taken
+        function sendEmployeeUpdate(extra) {
             let employeeFirstName = $('#employeeFirstName').val();
             let employeeLastName = $('#employeeLastName').val();
-            let employeeName = employeeLastName.trim() + ', ' + employeeFirstName.trim(); // "LAST, FIRST"
-            let basicSalary = $('#basicSalary').val();
-            let department = $('#department').val();
-            let report_to = $('#report_to').val();
             let schedule = readScheduleInputs('schedule');
-            if (schedule === null) return;
-            let employeeEditStatus = $('#employeeEditStatus').val();
-            $.ajax({
+            if (schedule === null) return null;
+            return $.ajax({
                 url: `{{ route('employees.edit', ['id' => ':id']) }}`.replace(':id', globalID),
                 type: 'PUT',
                 dataType: 'json',
-                data: {
-                    unique_id: employeeUniqueId,
-                    employee_name: employeeName,
-                    basic_salary: basicSalary,
-                    department: department,
-                    report_to: report_to,
+                data: Object.assign({
+                    unique_id: $('#employeeUniqueId').val().trim(),
+                    employee_name: employeeLastName.trim() + ', ' + employeeFirstName.trim(), // "LAST, FIRST"
+                    basic_salary: $('#basicSalary').val(),
+                    department: $('#department').val(),
+                    report_to: $('#report_to').val(),
                     schedule: schedule,
-                    status: employeeEditStatus,
+                    status: $('#employeeEditStatus').val(),
                     _token: "{{ csrf_token() }}"
-                },
-                success: function(response) {
-                    Swal.fire({
-                        position: "center",
-                        icon: "success",
-                        title: "Employee updated successfully!",
-                        showConfirmButton: false,
-                        timer: 1500,
-                        width: "500px"
-                    });
+                }, extra || {})
+            });
+        }
 
-                    $('#employeeTable').DataTable().ajax.reload();
-                    window.dispatchEvent(new Event('close-modal'));
-                },
-                error: function(xhr, status, error) {
-                    console.error('Error updating employee data:', error);
+        function employeeUpdated() {
+            Swal.fire({
+                position: "center",
+                icon: "success",
+                title: "Employee updated successfully!",
+                showConfirmButton: false,
+                timer: 1500,
+                width: "500px"
+            });
+
+            $('#employeeTable').DataTable().ajax.reload();
+            window.dispatchEvent(new Event('close-modal'));
+        }
+
+        function updateFunction() {
+            const request = sendEmployeeUpdate();
+            if (!request) return;
+            request
+                .done(employeeUpdated)
+                .fail(function(xhr, status, error) {
                     const json = xhr.responseJSON || {};
+                    if (xhr.status === 409 && json.code === 'unique_id_taken') {
+                        resolveUniqueIdConflict(json.employee, $('#employeeUniqueId').val().trim());
+                        return;
+                    }
+                    console.error('Error updating employee data:', error);
                     const firstError = json.errors ? Object.values(json.errors)[0][0] : null;
                     Swal.fire('Error', firstError || json.message || 'Failed to update employee data', 'error');
-                }
-            });
+                });
         }
 
         function deleteEmployee(id) {
@@ -634,64 +791,116 @@
             });
         }
 
-        function addEmployee() {
-            let employeeAddUniqueId = $('#employeeAddUniqueId').val();
-            let employeeAddFirstName = $('#employeeAddFirstName').val();
-            let employeeAddLastName = $('#employeeAddLastName').val();
-            let employeeAddDepartment = $('#employeeAddDepartment').val();
+        // POST the Add form. `overrides` replaces the Unique ID or carries the conflict resolution.
+        function sendAddEmployee(overrides) {
             let employeeAddSchedule = readScheduleInputs('employeeAddSchedule');
-            if (employeeAddSchedule === null) return;
-            let employeeAddImmediateSupervisor = $('#employeeAddImmediateSupervisor').val();
-            let basicAddSalary = $('#basicAddSalary').val();
-            let employeeAddStatus = $('#employeeAddStatus').val();
-
-
-            $.ajax({
+            if (employeeAddSchedule === null) return null;
+            return $.ajax({
                 url: "{{ route('employees.store') }}",
                 type: 'POST',
-                data: {
-                    employeeAddUniqueId: employeeAddUniqueId,
-                    employeeAddFirstName: employeeAddFirstName,
-                    employeeAddLastName: employeeAddLastName,
-                    employeeAddDepartment: employeeAddDepartment,
+                dataType: 'json',
+                data: Object.assign({
+                    employeeAddUniqueId: $('#employeeAddUniqueId').val().trim(),
+                    employeeAddFirstName: $('#employeeAddFirstName').val(),
+                    employeeAddLastName: $('#employeeAddLastName').val(),
+                    employeeAddDepartment: $('#employeeAddDepartment').val(),
                     employeeAddSchedule: employeeAddSchedule,
-                    employeeAddImmediateSupervisor: employeeAddImmediateSupervisor,
-                    basicAddSalary: basicAddSalary,
-                    employeeAddStatus: employeeAddStatus,
+                    employeeAddImmediateSupervisor: $('#employeeAddImmediateSupervisor').val(),
+                    basicAddSalary: $('#basicAddSalary').val(),
+                    employeeAddStatus: $('#employeeAddStatus').val(),
                     _token: "{{ csrf_token() }}"
-                },
-                success: function(response) {
-                    Swal.fire({
-                        position: "center",
-                        icon: "success",
-                        title: response.message,
-                        showConfirmButton: false,
-                        timer: 1500,
-                        width: "500px"
-                    });
-                    window.dispatchEvent(new Event('close'));
-                    $('#employeeTable').DataTable().ajax.reload();
-                },
-                error: function(xhr) {
-                    if (xhr.status === 422) {
-                        const errors = xhr.responseJSON.errors;
-                        let errorMessage = '';
-                        for (const key in errors) {
-                            if (errors.hasOwnProperty(key)) {
-                                errorMessage += errors[key].join(', ') + '\n';
-                            }
-                        }
-                        Swal.fire({
-                            position: "center",
-                            icon: "error",
-                            title: errorMessage,
-                            showConfirmButton: false,
-                            timer: 5000,
-                            width: "500px"
-                        });
-                    } else {
-                        alert('An error occurred. Please try again.');
+                }, overrides || {})
+            });
+        }
+
+        function employeeAdded(response) {
+            Swal.fire({
+                position: "center",
+                icon: "success",
+                title: response.message,
+                showConfirmButton: false,
+                timer: 1500,
+                width: "500px"
+            });
+            window.dispatchEvent(new Event('close'));
+            $('#employeeTable').DataTable().ajax.reload();
+        }
+
+        function requestErrorMessage(xhr, fallback) {
+            const json = xhr.responseJSON || {};
+            const firstError = json.errors ? Object.values(json.errors)[0][0] : null;
+            return firstError || json.message || fallback;
+        }
+
+        function addEmployee() {
+            const request = sendAddEmployee();
+            if (!request) return;
+            request
+                .done(employeeAdded)
+                .fail(function(xhr) {
+                    const json = xhr.responseJSON || {};
+                    if (xhr.status === 409 && json.code === 'unique_id_taken') {
+                        resolveAddUniqueIdConflict(json, $('#employeeAddUniqueId').val().trim());
+                        return;
                     }
+                    Swal.fire('Error', requestErrorMessage(xhr, 'Failed to add employee'), 'error');
+                });
+        }
+
+        // The Unique ID typed in the Add form belongs to someone: use the next free ID for the new
+        // employee, or give the current holder a new ID and keep this one. Cancel goes back to the form.
+        function resolveAddUniqueIdConflict(conflict, takenId) {
+            const emp = conflict.employee;
+            const submit = (overrides) => new Promise((resolve) => {
+                sendAddEmployee(overrides)
+                    .done(resolve)
+                    .fail((xhr) => {
+                        Swal.showValidationMessage(requestErrorMessage(xhr, 'Failed to add employee'));
+                        resolve(false);
+                    });
+            });
+
+            Swal.fire({
+                icon: 'warning',
+                title: 'Unique ID already in use',
+                width: '600px',
+                html: '<div class="text-left text-sm space-y-3">' +
+                    '<p><b>' + escapeHtml(takenId) + '</b> belongs to another employee. To prevent two employees ' +
+                    'sharing an ID, either use the next free ID for the new employee, or give this employee a new one.</p>' +
+                    '<div class="rounded-lg border border-gray-200 bg-gray-50 p-3">' +
+                    '<div><span class="text-gray-500">Name:</span> ' + escapeHtml(emp.employee_name) + '</div>' +
+                    '<div><span class="text-gray-500">Department:</span> ' + escapeHtml(emp.department || '—') + '</div>' +
+                    '<div><span class="text-gray-500">Status:</span> ' + escapeHtml(emp.status || '—') + '</div>' +
+                    '<div><span class="text-gray-500">Current ID:</span> ' + escapeHtml(emp.unique_id) + '</div>' +
+                    '</div>' +
+                    '<label for="conflictAddNewUniqueId" class="block font-semibold text-gray-700">New Unique ID for ' +
+                    escapeHtml(emp.employee_name) + ' <span class="font-normal text-gray-500">(only if you keep ' +
+                    escapeHtml(takenId) + ' for the new employee)</span></label>' +
+                    '<input id="conflictAddNewUniqueId" class="swal2-input !m-0 !w-full" value="' + escapeHtml(conflict.suggested) + '">' +
+                    '</div>',
+                showDenyButton: true,
+                showCancelButton: true,
+                confirmButtonText: 'Use ' + escapeHtml(conflict.suggested) + ' for the new employee',
+                denyButtonText: 'Give ' + escapeHtml(emp.employee_name) + ' the new ID',
+                denyButtonColor: '#d97706',
+                cancelButtonText: 'Cancel',
+                showLoaderOnConfirm: true,
+                showLoaderOnDeny: true,
+                allowOutsideClick: () => !Swal.isLoading(),
+                preConfirm: () => submit({ employeeAddUniqueId: conflict.suggested }),
+                preDeny: () => {
+                    const newId = $('#conflictAddNewUniqueId').val().trim();
+                    if (newId === '') {
+                        Swal.showValidationMessage('Enter a new Unique ID for ' + emp.employee_name);
+                        return false;
+                    }
+                    return submit({ conflict_employee_id: emp.id, conflict_new_unique_id: newId });
+                }
+            }).then((result) => {
+                if ((result.isConfirmed || result.isDenied) && result.value) {
+                    employeeAdded(result.value);
+                } else if (result.isDismissed) {
+                    window.dispatchEvent(new CustomEvent('open-modal', { detail: 'add-employee' })); // back to the form, entries intact
                 }
             });
         }

@@ -8,7 +8,7 @@
 <h3>Before you upload</h3>
 <ul>
     <li>Employees and their <b>schedules</b> are up to date (Employee Management). Names must match the device.</li>
-    <li><b>Holidays</b> for the period are set (Dashboard, Upcoming Holidays).</li>
+    <li><b>Holidays</b> for the period are set (Dashboard, Holidays card).</li>
 </ul>
 <p>Overtime is calculated during the upload, from these settings.</p>
 

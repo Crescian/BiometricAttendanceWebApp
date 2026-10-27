@@ -180,6 +180,7 @@
 
                     renderClientTable('#users-table', {
                         data: rows,
+                        reload: loadUsers,
                         toolbar: '#users-toolbar-buttons',
                         search: '#users-search',
                         emptyText: 'No users found.',

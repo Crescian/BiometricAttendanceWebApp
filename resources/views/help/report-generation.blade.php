@@ -10,7 +10,7 @@
     <li>Approve <b>Certificates of Attendance</b> and <b>Schedule Adjustments</b> for the period.</li>
     <li>Approve the <b>Overtime</b>. Only <b>approved</b> OT, ND-OT and rest-day / holiday hours are paid.
         Pending rows are left out.</li>
-    <li>Make sure holidays are set (Dashboard, Upcoming Holidays) and employee details are up to date.</li>
+    <li>Make sure holidays are set (Dashboard, Holidays card) and employee details are up to date.</li>
 </ol>
 
 <h3>Generate the report</h3>

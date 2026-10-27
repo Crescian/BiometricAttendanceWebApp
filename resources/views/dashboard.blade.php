@@ -197,7 +197,7 @@
                 <div class="px-4 py-2 border-b border-gray-200 flex items-center justify-between gap-2">
                     <h2 class="text-sm font-semibold text-gray-900 flex items-center gap-2 truncate">
                         <i class="fa-solid fa-calendar-days text-base" style="color: #8DE11A;"></i>
-                        <span class="truncate">Upcoming Holidays</span>
+                        <span id="holidaysTitle" class="truncate">Holidays · {{ now()->format('F') }}</span>
                     </h2>
                     <button onclick="openCustomeDates();"
                         class="flex items-center px-2 py-0.5 bg-white text-green-600 font-semibold rounded-md border border-green-600 text-xs shrink-0">
@@ -734,26 +734,59 @@
                 $('#todayDate').text(formatted);
             }
 
+            // "2026-11-01 00:00:00" -> "Nov 01, 2026"
+            function holidayDateLabel(recordDate) {
+                return new Date(String(recordDate).substring(0, 10) + 'T00:00:00').toLocaleDateString('en-US', {
+                    month: 'short',
+                    day: '2-digit',
+                    year: 'numeric'
+                });
+            }
+
+            function escapeHolidayText(value) {
+                const div = document.createElement('div');
+                div.textContent = value ?? '';
+                return div.innerHTML;
+            }
+
+            // The current month's holidays. Earlier days of the month stay listed (dimmed) since they
+            // still count for this month's payroll; an empty month names the next holiday instead.
             function loadCustomDates() {
                 fetch('/custom-dates')
                     .then(res => res.json())
                     .then(data => {
                         const container = document.querySelector('.marquee-content');
-                        container.innerHTML = '';
+                        const monthName = (data.month || '').split(' ')[0];
+                        document.getElementById('holidaysTitle').textContent = 'Holidays · ' + monthName;
 
-                        data.forEach(item => {
-                            container.innerHTML += `
-                    <div class="flex justify-between items-center gap-2 bg-white px-2 py-1.5 border-b border-[#8DE11A] mb-1">
+                        const now = new Date();
+                        const today = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' +
+                            String(now.getDate()).padStart(2, '0');
+
+                        if (!data.holidays.length) {
+                            const next = data.next
+                                ? `<p class="text-xs text-gray-500 mt-1">Next: ${holidayDateLabel(data.next.record_date)} — ` +
+                                  `${escapeHolidayText(data.next.title)} <span class="italic">(${escapeHolidayText(data.next.holiday_type)})</span></p>`
+                                : '';
+                            container.innerHTML = `
+                    <div class="px-2 py-3 text-center">
+                        <p class="text-xs text-gray-700 font-semibold">No holidays in ${escapeHolidayText(monthName)}.</p>
+                        ${next}
+                    </div>`;
+                        } else {
+                            container.innerHTML = data.holidays.map(item => {
+                                const day = String(item.record_date).substring(0, 10);
+                                const tag = day === today
+                                    ? '<span class="ml-1 px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 text-[10px] font-semibold">Today</span>'
+                                    : day < today
+                                        ? '<span class="ml-1 px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500 text-[10px] font-semibold">Passed</span>'
+                                        : '';
+                                return `
+                    <div class="flex justify-between items-center gap-2 bg-white px-2 py-1.5 border-b border-[#8DE11A] mb-1 ${day < today ? 'opacity-60' : ''}">
                         <div>
-                            <p class="text-xs text-gray-900 font-semibold">
-                                ${new Date(item.record_date).toLocaleDateString('en-US', {
-                                    month: 'short',
-                                    day: '2-digit',
-                                    year: 'numeric'
-                                })}
-                            </p>
+                            <p class="text-xs text-gray-900 font-semibold">${holidayDateLabel(item.record_date)}${tag}</p>
                             <p class="text-xs text-gray-700">
-                                ${item.title} — <span class="italic text-gray-600">${item.holiday_type}</span>
+                                ${escapeHolidayText(item.title)} — <span class="italic text-gray-600">${escapeHolidayText(item.holiday_type)}</span>
                             </p>
                         </div>
                         <div class="flex shrink-0 gap-1">
@@ -764,9 +797,13 @@
                                 <i class="fa-solid fa-trash text-black"></i>
                             </button>
                         </div>
-                    </div>
-                `;
-                        });
+                    </div>`;
+                            }).join('');
+                        }
+
+                        // Scroll only when the list is taller than the card
+                        const marquee = container.closest('.marquee-vertical');
+                        marquee.style.animation = container.scrollHeight > marquee.parentElement.clientHeight ? '' : 'none';
                     })
                     .catch(err => {
                         Swal.fire({
@@ -798,7 +835,9 @@
                         if (response.success) {
                             Swal.fire({
                                 title: 'Success!',
-                                text: response.message,
+                                // The card lists only this month, so say where a holiday for another month went
+                                text: response.message + ' Added for ' + new Date(data.record_date + 'T00:00:00')
+                                    .toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) + '.',
                                 icon: 'success',
                                 confirmButtonColor: '#16A34A', // Tailwind green-600
                                 confirmButtonText: 'OK'

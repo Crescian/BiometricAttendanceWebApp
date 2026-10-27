@@ -8,12 +8,12 @@
         items <b>pending approval</b> and recent clock-ins / outs. Department heads see their own
         departments. Admins see everyone.</li>
     <li><b>Charts</b>: the status of leaves, schedule adjustments and certificates, and total presents.</li>
-    <li><b>Upcoming Holidays</b>: the holiday and rest-day list used for overtime and payroll.</li>
+    <li><b>Holidays</b>: this month's holidays (earlier days of the month are dimmed). Holidays for other months are still saved and used for overtime and payroll; when this month has none, the card names the next one.</li>
 </ul>
 
 <h3>Add a holiday</h3>
 <ol>
-    <li>In <b>Upcoming Holidays</b>, click <span class="help-btn"><i class="fa-solid fa-plus"></i> Add</span>.</li>
+    <li>In the <b>Holidays</b> card, click <span class="help-btn"><i class="fa-solid fa-plus"></i> Add</span>.</li>
     <li>Enter a <b>Title</b> (e.g. "Independence Day") and the <b>Record Date</b>.</li>
     <li>Choose the <b>Holiday Type</b>:
         <ul>

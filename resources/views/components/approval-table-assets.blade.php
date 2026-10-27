@@ -267,9 +267,65 @@
             }, extra);
         }
 
-        // The standard Export + Columns toolbar buttons
-        function exportAndColumnButtons() {
+        // Refresh: fetches the rows again, keeping the page, search and sort. `reload` is the page's
+        // loader for a client-side table; an ajax table reloads itself. The tooltip shows when the
+        // rows were last fetched.
+        function refreshButton(reload) {
+            const stamp = (node) => $(node).attr('title', 'Last updated ' + new Date().toLocaleTimeString());
+            return toolbarButton({
+                text: '<i class="fa-solid fa-rotate-right text-gray-500"></i> Refresh',
+                init: function(api, node) {
+                    $(node).removeClass('dt-button');
+                    stamp(node);
+                    api.on('xhr.dt', () => stamp(node));
+                },
+                action: function(e, dt, node) {
+                    const icon = $(node).find('i').addClass('fa-spin');
+                    const done = () => { icon.removeClass('fa-spin'); stamp(node); };
+                    if (reload) {
+                        reload(); // re-creates the table, and with it this button
+                        setTimeout(done, 800);
+                    } else {
+                        dt.ajax.reload(done, false);
+                    }
+                }
+            });
+        }
+
+        // Rows go stale while the tab sits in the background, or when Back/Forward restores the page
+        // from the browser cache: fetch every table again then. Client-side tables register their
+        // loader through renderClientTable({ reload }).
+        const clientTableLoaders = new Set();
+
+        function refreshAllTables() {
+            $.fn.dataTable.tables().forEach(function(node) {
+                const api = $(node).DataTable();
+                if (api.ajax.url()) api.ajax.reload(null, false);
+            });
+            clientTableLoaders.forEach((load) => load());
+        }
+
+        (function() {
+            const STALE_AFTER_MS = 30000; // quick tab switches don't refetch
+            let hiddenAt = null;
+            document.addEventListener('visibilitychange', function() {
+                if (document.hidden) {
+                    hiddenAt = Date.now();
+                } else if (hiddenAt !== null && Date.now() - hiddenAt >= STALE_AFTER_MS) {
+                    hiddenAt = null;
+                    refreshAllTables();
+                }
+            });
+            window.addEventListener('pageshow', function(event) {
+                if (event.persisted) refreshAllTables();
+            });
+        })();
+
+        // The standard Refresh + Export + Columns toolbar buttons. Pass `false` to leave out Refresh
+        // (a client-side table with no loader to call).
+        function exportAndColumnButtons(reload) {
             return [
+                ...(reload === false ? [] : [refreshButton(reload)]),
                 toolbarButton({
                     extend: 'collection',
                     text: '<i class="fa-solid fa-download text-gray-500"></i> Export',
@@ -300,7 +356,9 @@
 
         // Client-side DataTable (rows already loaded with $.ajax) in the shared look.
         // Re-creates the table on every call, so it doubles as a "reload with new rows".
+        // Pass options.reload (the page's loader) for a Refresh button and the refresh on return.
         function renderClientTable(selector, options) {
+            if (options.reload) clientTableLoaders.add(options.reload);
             if ($.fn.DataTable.isDataTable(selector)) {
                 $(selector).DataTable().clear().destroy();
             }
@@ -328,7 +386,7 @@
                 ],
                 // Only the columns marked orderable: true can be sorted
                 columnDefs: [{ targets: '_all', orderable: false }],
-                buttons: exportAndColumnButtons(),
+                buttons: exportAndColumnButtons(options.reload || false),
                 columns: [expandControlColumn, ...options.columns],
                 language: {
                     emptyTable: options.emptyText || "No records available",

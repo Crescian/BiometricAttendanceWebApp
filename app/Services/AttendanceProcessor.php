@@ -1046,6 +1046,18 @@ class AttendanceProcessor
             unset($day);
         }
 
+        // Whole minutes per day, so the payroll file, DTR and security report all add up the same
+        // values (a computed ND can come out as a fraction of a minute).
+        foreach ($employees as &$emp) {
+            foreach ($emp['days'] as &$day) {
+                foreach (self::BUCKETS as $bucket) {
+                    $day[$bucket] = round($day[$bucket] * 60) / 60;
+                }
+            }
+            unset($day);
+        }
+        unset($emp);
+
         $recordedDates = array_unique(array_map(fn($r) => substr($r->record_date, 0, 10), $rows));
         $missingDates  = [];
         foreach (\Carbon\CarbonPeriod::create($start, $end) as $d) {
@@ -1333,10 +1345,12 @@ class AttendanceProcessor
                 ]);
 
                 if ($bucket) {
+                    // Exact hours (whole minutes), shown with 2 decimals: rounding each day instead
+                    // made TOTAL / Sprout drift from the payroll file by up to ~0.1 over a cutoff.
                     foreach ($dates as $i => $d) {
                         $hours = $emp['days'][$d->format('Y-m-d')][$bucket] ?? 0;
-                        if (round($hours, 2) != 0) {
-                            $sheet->setCellValue($col($firstDay + $i) . $row, round($hours, 2));
+                        if ($hours != 0) {
+                            $sheet->setCellValue($col($firstDay + $i) . $row, $hours);
                         }
                     }
                 }
@@ -1364,6 +1378,9 @@ class AttendanceProcessor
         }
 
         $lastRow = max($row - 1, 3);
+        if ($lastRow >= 4) {
+            $sheet->getStyle($col($firstDay) . '4:' . $col($sproutCol) . $lastRow)->getNumberFormat()->setFormatCode('0.00');
+        }
         $sheet->getStyle('A1:' . $col($sproutCol) . $lastRow)->getBorders()->getAllBorders()
             ->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN);
         $sheet->setAutoFilter("A3:C{$lastRow}");

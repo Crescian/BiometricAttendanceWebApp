@@ -74,6 +74,8 @@ Route::middleware('auth')->group(function () {
     Route::post('/report-generation', [CsvimportController::class, 'reportGeneration'])->name('report.generation');
 
     Route::get('/employees', [EmployeeManagementController::class, 'index'])->name('employees.fetch');
+    Route::get('/employees-check-unique-id', [EmployeeManagementController::class, 'checkUniqueId'])->name('employees.checkUniqueId');
+    Route::get('/employees-suggest-unique-id', [EmployeeManagementController::class, 'suggestUniqueId'])->name('employees.suggestUniqueId');
     Route::get('/employees/{id}', [EmployeeManagementController::class, 'edit'])->name('employees.edit');
     Route::put('/employees/{id}', [EmployeeManagementController::class, 'update'])->name('employees.update');
     Route::post('/employeesStore', [EmployeeManagementController::class, 'store'])->name('employees.store');
