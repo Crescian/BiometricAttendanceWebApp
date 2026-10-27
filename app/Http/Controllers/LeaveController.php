@@ -2,8 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\BulkApprovesRecords;
+use App\Http\Controllers\Concerns\FiltersTables;
 use App\Models\Leave;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Yajra\DataTables\Facades\DataTables;
 use Carbon\Carbon;
 use App\Models\BiometricHistoryList;
@@ -11,6 +14,8 @@ use App\Models\EmployeeManagement;
 
 class LeaveController extends Controller
 {
+    use BulkApprovesRecords, FiltersTables;
+
     protected $biometricHistoryList;
 
     public function __construct(BiometricHistoryList $biometricHistoryList)
@@ -62,6 +67,31 @@ class LeaveController extends Controller
         }
     }
 
+    protected function bulkTable(): string { return 'leaves'; }
+    protected function bulkModel(): string { return Leave::class; }
+    protected function bulkStatusColumn(): string { return 'status'; }
+    protected function bulkPendingValue(): string { return 'pending'; }
+    protected function bulkDateColumn(): string { return 'record_date'; }
+
+    protected function bulkRecords(int $count): string
+    {
+        return "{$count} leave " . ($count === 1 ? 'request' : 'requests');
+    }
+
+    /**
+     * Approving a leave only flips its status, so a batch is a single update.
+     */
+    protected function approvePendingRecords(Collection $ids): int
+    {
+        if ($ids->isEmpty()) {
+            return 0;
+        }
+
+        return Leave::whereIn('id', $ids)
+            ->where('status', 'pending')
+            ->update(['status' => 'approved', 'updated_at' => now()]);
+    }
+
     public function cancel($id)
     {
         try {
@@ -86,6 +116,19 @@ class LeaveController extends Controller
         }
     }
 
+    /** Choices for the page's filter bar: departments, schedules and dates of the loaded import. */
+    public function filterOptions()
+    {
+        return response()->json($this->tableFilterOptions(
+            fn () => $this->restrictToHeadedDepartments(
+                Leave::join('employee_management', 'employee_management.id', '=', 'leaves.employee_management_id')
+                    ->when($this->biometricHistoryList->getLoadedRecordId(), fn ($q, $id) => $q->where('leaves.biometric_imports_id', $id)),
+                'employee_management.department'
+            ),
+            'leaves.record_date', 'employee_management.department'
+        ));
+    }
+
     /**
      * Display a listing of the resource.
      *
@@ -96,8 +139,6 @@ class LeaveController extends Controller
     {
         if ($request->ajax()) {
             $status = $request->get('status'); // optional filter
-            $userRole = $request->get('userRole');
-            $department = $request->get('department');
             $biometricImportId = $this->biometricHistoryList->getLoadedRecordId();
 
             // 🔹 Build query with join to employee_management
@@ -114,8 +155,12 @@ class LeaveController extends Controller
                     'leaves.status',
                     'leaves.created_at',
                     'leaves.updated_at'
-                )
-                ->orderBy('employee_management.employee_name', 'asc');
+                );
+
+            // Fixed order only when the table asks for none; otherwise DataTables applies the clicked column
+            if (!$request->filled('order')) {
+                $data->orderBy('employee_management.employee_name', 'asc');
+            }
 
             // ✅ Apply biometric_imports_id filter only if it has a value
             if (!empty($biometricImportId)) {
@@ -127,13 +172,13 @@ class LeaveController extends Controller
                 $data->where('leaves.status', $status);
             }
 
-            // ✅ Optional filter: restrict non-admins to their department
-            if ($userRole === 'user' && $department) {
-                $data->where('employee_management.department', $department);
-            }
+            // Rows the user may see (non-admins: departments they head), then the filter bar
+            $this->restrictToHeadedDepartments($data, 'employee_management.department');
+            $this->applyTableFilters($data, $request, 'leaves.record_date', 'employee_management.department');
 
-            // ✅ Return DataTables JSON
+            // ✅ Return DataTables JSON (sorting by employee keeps their days in date order)
             return DataTables::of($data)
+                ->orderColumn('employee_management.employee_name', 'employee_management.employee_name $1, leaves.record_date asc')
                 ->filterColumn('employee_name', function($query, $keyword) {
                     $query->whereRaw('LOWER(employee_management.employee_name) LIKE ?', ["%{$keyword}%"]);
                 })

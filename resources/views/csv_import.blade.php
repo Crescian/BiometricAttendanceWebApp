@@ -252,73 +252,101 @@
         <div class="loaders"></div>
     </div>
 
-    <div class="px-16 py-8">
-        <div class="flex items-center justify-between mb-6">
-            <h2 class="text-3xl font-bold text-gray-800 flex items-center">
-                <i class="fa-solid fa-file-import text-green-500 mr-3"></i>
-                Imported CSV Files
-            </h2>
-            <button x-data @click.prevent="$dispatch('open-modal', 'biometric-info')"
-                class="flex items-center px-4 py-2 bg-gradient-to-r from-green-600 to-green-700 text-white font-semibold rounded-lg shadow-sm hover:from-green-700 hover:to-green-800 transition-all duration-200">
-                <i class="fa-solid fa-file-import mr-2"></i> Import Now
-            </button>
+    <x-approval-table-assets />
+
+    <div class="px-2 lg:px-4">
+        <!-- Page header + toolbar -->
+        <div class="flex flex-wrap items-center justify-between gap-3 px-4 pt-4 pb-3">
+            <h1 class="text-xl font-semibold text-gray-900">{{ __('Biometric Data Import') }}</h1>
+            <div class="flex flex-wrap items-center gap-2">
+                <button type="button" x-data @click.prevent="$dispatch('open-modal', 'biometric-info')"
+                    class="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-white bg-green-600 rounded-md hover:bg-green-700 shadow-sm">
+                    <i class="fa-solid fa-file-import"></i>
+                    Import Now
+                </button>
+                <div class="relative">
+                    <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i>
+                    <input id="imports-search" type="search" placeholder="Search"
+                        class="w-48 pl-8 pr-3 py-1.5 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500">
+                </div>
+                <div id="imports-toolbar-buttons" class="flex items-center gap-2"></div>
+            </div>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 imported-csv-list" id="importedCsvList"></div>
-
-        {{-- <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 imported-csv-list">
-            <!-- File Card 1 -->
-            <div
-                class="bg-white shadow-md rounded-xl border border-gray-200 p-5 hover:shadow-lg transition-all duration-200">
-                <div class="flex items-start justify-between mb-3">
-                    <h3 class="font-bold text-lg text-gray-900">Daily Attendance - Oct 10, 2025</h3>
-                    <span class="bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-semibold">
-                        Completed
-                    </span>
-                </div>
-
-                <div class="text-sm text-gray-700 space-y-1">
-                    <p><strong>Imported By:</strong> Crescian Lanoy</p>
-                    <p><strong>Imported At:</strong> 2025-10-10 08:42 AM</p>
-                    <p><strong>Total Rows:</strong> 8,000</p>
-                    <p><strong>Created:</strong> 2025-10-10</p>
-                    <p><strong>Updated:</strong> 2025-10-10</p>
-                </div>
-
-                <div class="mt-4 flex justify-end">
-                    <button onclick="loadFile(2)"
-                        class="inline-flex items-center px-4 py-2 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-lg text-sm font-semibold hover:scale-105 transform transition">
-                        <i class="fa-solid fa-download mr-2 text-xs"></i> Load
-                    </button>
+        <!-- Table card -->
+        <div class="px-4 pb-4">
+            <div class="bg-white rounded-lg border border-gray-200 shadow-sm">
+                <div class="p-2 text-gray-900">
+                    <div class="border border-gray-200 rounded-md overflow-hidden">
+                        <div class="overflow-x-auto">
+                            <table id="imports-table" class="modern-table w-full text-sm">
+                                <thead>
+                                    <tr>
+                                        <th class="noVis" style="width: 2rem;"></th>
+                                        <th>Title</th>
+                                        <th>Status</th>
+                                        <th>Payroll Period</th>
+                                        <th>Records</th>
+                                        <th>Imported By</th>
+                                        <th>Imported At</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
             </div>
+        </div>
 
-            <!-- File Card 2 -->
-            <div
-                class="bg-white shadow-md rounded-xl border border-gray-200 p-5 hover:shadow-lg transition-all duration-200">
-                <div class="flex items-start justify-between mb-3">
-                    <h3 class="font-bold text-lg text-gray-900">Daily Attendance - Oct 09, 2025</h3>
-                    <span class="bg-yellow-100 text-yellow-700 px-3 py-1 rounded-full text-xs font-semibold">
-                        Processing
-                    </span>
+        <!-- Edit import modal -->
+        <div id="editImportModal" class="hidden fixed inset-0 z-50 items-center justify-center bg-black/50 px-4">
+            <div class="w-full max-w-md bg-white rounded-lg shadow-xl">
+                <div class="flex items-center justify-between px-5 py-3 border-b border-gray-200">
+                    <h3 class="text-sm font-semibold text-gray-900"><i class="fa-solid fa-pen text-green-600 mr-1"></i> Edit import</h3>
+                    <button type="button" onclick="closeImportModal('#editImportModal')" class="text-gray-400 hover:text-gray-700 text-xl">&times;</button>
                 </div>
-
-                <div class="text-sm text-gray-700 space-y-1">
-                    <p><strong>Imported By:</strong> Admin</p>
-                    <p><strong>Imported At:</strong> 2025-10-09 07:58 AM</p>
-                    <p><strong>Total Rows:</strong> 7,550</p>
-                    <p><strong>Created:</strong> 2025-10-09</p>
-                    <p><strong>Updated:</strong> 2025-10-09</p>
+                <div class="px-5 py-4 space-y-3 text-sm">
+                    <input type="hidden" id="edit-import-id">
+                    <label class="block">
+                        <span class="block text-gray-700 mb-1">Title</span>
+                        <input type="text" id="edit-import-title" maxlength="100" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-green-500">
+                    </label>
+                    <div class="grid grid-cols-2 gap-3">
+                        <label class="block">
+                            <span class="block text-gray-700 mb-1">Payroll from</span>
+                            <input type="date" id="edit-import-start" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-green-500">
+                        </label>
+                        <label class="block">
+                            <span class="block text-gray-700 mb-1">Payroll to</span>
+                            <input type="date" id="edit-import-end" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-green-500">
+                        </label>
+                    </div>
+                    <p class="text-xs text-gray-500">Imported by, imported at and the attendance data itself can't be edited.</p>
                 </div>
-
-                <div class="mt-4 flex justify-end">
-                    <button onclick="unloadFile(1)"
-                        class="inline-flex items-center px-4 py-2 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-lg text-sm font-semibold hover:scale-105 transform transition">
-                        <i class="fa-solid fa-upload mr-2 text-xs"></i> Unload
-                    </button>
+                <div class="flex justify-end gap-2 px-5 py-3 border-t border-gray-200 bg-gray-50 rounded-b-lg">
+                    <button type="button" onclick="closeImportModal('#editImportModal')" class="px-4 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-100">Cancel</button>
+                    <button type="button" onclick="saveImportEdit()" class="px-4 py-2 text-sm text-white bg-green-600 rounded-md hover:bg-green-700">Save</button>
                 </div>
             </div>
-        </div> --}}
+        </div>
+
+        <!-- Delete import modal -->
+        <div id="deleteImportModal" class="hidden fixed inset-0 z-50 items-center justify-center bg-black/50 px-4">
+            <div class="w-full max-w-md bg-white rounded-lg shadow-xl">
+                <div class="flex items-center justify-between px-5 py-3 border-b border-gray-200">
+                    <h3 class="text-sm font-semibold text-red-700"><i class="fa-solid fa-trash mr-1"></i> Delete import</h3>
+                    <button type="button" onclick="closeImportModal('#deleteImportModal')" class="text-gray-400 hover:text-gray-700 text-xl">&times;</button>
+                </div>
+                <div id="delete-import-body" class="px-5 py-4 space-y-3 text-sm"></div>
+                <div class="flex justify-end gap-2 px-5 py-3 border-t border-gray-200 bg-gray-50 rounded-b-lg">
+                    <button type="button" onclick="closeImportModal('#deleteImportModal')" class="px-4 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-100">Cancel</button>
+                    <button type="button" id="delete-import-confirm" onclick="confirmImportDelete()" disabled
+                        class="px-4 py-2 text-sm text-white bg-red-600 rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed">Delete import and its data</button>
+                </div>
+            </div>
+        </div>
     </div>
 
     {{-- <div class="flex justify-center csv-output mt-5">
@@ -398,6 +426,27 @@
                                 required>
                         </div>
 
+                        <!-- Payroll Period -->
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label for="period-start" class="block text-sm font-medium text-gray-700 mb-1">
+                                    Payroll Period Start
+                                </label>
+                                <input id="period-start" name="period_start" type="date"
+                                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500">
+                            </div>
+                            <div>
+                                <label for="period-end" class="block text-sm font-medium text-gray-700 mb-1">
+                                    Payroll Period End
+                                </label>
+                                <input id="period-end" name="period_end" type="date"
+                                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500">
+                            </div>
+                            <p class="col-span-2 text-xs text-gray-500">
+                                Defaults to the first and last punch date in the file. Manual attendance entries must fall inside this period.
+                            </p>
+                        </div>
+
                         <!-- File Upload -->
                         <div>
                             <label for="biometricFile" class="block text-sm font-medium text-gray-700 mb-1">
@@ -450,130 +499,272 @@
         /** -----------------------------
          *  LOAD IMPORT HISTORY
          * ------------------------------*/
+        const importRoutes = {
+            update: "{{ route('biometric-history-list.update', ['id' => '__ID__']) }}",
+            preview: "{{ route('biometric-history-list.delete-preview', ['id' => '__ID__']) }}",
+            destroy: "{{ route('biometric-history-list.destroy', ['id' => '__ID__']) }}",
+        };
+        let importsById = {};
+        let deletingImport = null;
+
+        const escapeHtml = (value) => $('<div>').text(value ?? '').html();
+        const importPill = (classes, text) => `<span class="px-1.5 py-0.5 text-[11px] font-semibold rounded-full whitespace-nowrap ${classes}">${escapeHtml(text)}</span>`;
+        const dateOnly = (value) => value ? String(value).substring(0, 10) : '';
+
+        function formatPeriod(start, end) {
+            if (!start || !end) return '<span class="text-gray-400">Not set</span>';
+            const fmt = (d, withYear) => new Date(dateOnly(d) + 'T00:00:00')
+                .toLocaleDateString('en-US', withYear ? { month: 'short', day: 'numeric', year: 'numeric' } : { month: 'short', day: 'numeric' });
+            return `${fmt(start, false)} – ${fmt(end, true)}`;
+        }
+
+        bindTableSearch('#imports-search', '#imports-table');
+
         function loadImportedCsvList() {
             $.ajax({
                 url: "{{ route('biometric-history-list.fetch') }}",
                 type: 'GET',
-                headers: {
-                    'X-CSRF-TOKEN': csrfToken
-                },
                 success: function(response) {
-                    let container = $('#importedCsvList');
-                    container.empty(); // Clear old cards
+                    const rows = Array.isArray(response) ? response : [];
+                    importsById = Object.fromEntries(rows.map(r => [r.id, r]));
 
-                    if (response.length === 0) {
-                        container.append(`
-                    <div class="col-span-full text-center text-gray-500 py-10">
-                        <i class="fa-solid fa-folder-open text-4xl mb-2"></i>
-                        <p>No biometric data imports found.</p>
-                    </div>
-                `);
-                        return;
-                    }
-
-                    $.each(response, function(index, item) {
-                        let statusColor = '';
-                        let statusBg = '';
-                        let buttonLabel = '';
-                        let buttonColor = '';
-                        let buttonIcon = '';
-                        console.log("Item Status:", item.status);
-                        if (item.status == 'load') {
-                            statusColor = 'text-green-700';
-                            statusBg = 'bg-green-100';
-                            buttonLabel = 'Unload';
-                            buttonColor = 'bg-gradient-to-r from-red-600 to-red-700';
-                            buttonIcon = 'fa-upload';
-                        } else if (item.status == 'unload') {
-                            statusColor = 'text-yellow-700';
-                            statusBg = 'bg-yellow-100';
-                            buttonLabel = 'Load';
-                            buttonColor = 'bg-gradient-to-r from-green-600 to-green-700';
-                            buttonIcon = 'fa-download';
-                        } else {
-                            statusColor = 'text-gray-700';
-                            statusBg = 'bg-gray-100';
-                            buttonLabel = 'Pending';
-                            buttonColor = 'bg-gradient-to-r from-gray-400 to-gray-500';
-                            buttonIcon = 'fa-clock';
-                        }
-
-                        container.append(`
-                    <div class="bg-white shadow-md rounded-xl border border-gray-200 p-5 hover:shadow-lg transition-all duration-200">
-                        <div class="flex items-start justify-between mb-3">
-                            <h3 class="font-bold text-lg text-gray-900">${item.title}</h3>
-                            <span class="${statusBg} ${statusColor} px-3 py-1 rounded-full text-xs font-semibold capitalize">
-                                ${item.status}
-                            </span>
-                        </div>
-
-                        <div class="text-sm text-gray-700 space-y-1">
-                            <p><strong>Imported By:</strong> ${item.imported_by}</p>
-                            <p><strong>Imported At:</strong> ${item.imported_at}</p>
-                            <p><strong>Total Rows:</strong> ${item.total_rows}</p>
-                            <p><strong>Created:</strong> ${new Date(item.created_at).toLocaleDateString()}</p>
-                            <p><strong>Updated:</strong> ${new Date(item.updated_at).toLocaleDateString()}</p>
-                        </div>
-
-                        <div class="mt-4 flex justify-end">
-                            <button data-id="${item.id}" data-status="${item.status}"
-                                class="inline-flex items-center px-4 py-2 ${buttonColor} text-white rounded-lg text-sm font-semibold hover:scale-105 transform transition file-action-btn">
-                                <i class="fa-solid ${buttonIcon} mr-2 text-xs"></i> ${buttonLabel}
-                            </button>
-                        </div>
-                    </div>
-                `);
+                    const table = renderClientTable('#imports-table', {
+                        data: rows,
+                        reload: loadImportedCsvList,
+                        toolbar: '#imports-toolbar-buttons',
+                        search: '#imports-search',
+                        emptyText: 'No biometric data imports yet. Use Import Now to add one.',
+                        order: [[6, 'desc']],
+                        columns: [
+                            {
+                                data: 'title',
+                                orderable: true,
+                                className: 'all font-medium text-gray-900',
+                                render: $.fn.dataTable.render.text()
+                            },
+                            {
+                                data: 'status',
+                                render: (data, type) => {
+                                    const loaded = data === 'load';
+                                    if (type !== 'display') return loaded ? 'Loaded' : 'Unloaded';
+                                    return loaded
+                                        ? importPill('bg-green-100 text-green-800', 'Loaded')
+                                        : importPill('bg-gray-100 text-gray-600', 'Unloaded');
+                                }
+                            },
+                            {
+                                data: 'period_start',
+                                orderable: true,
+                                defaultContent: '',
+                                render: (data, type, row) => type === 'display' ? formatPeriod(row.period_start, row.period_end) : dateOnly(data)
+                            },
+                            {
+                                data: 'attendance_count',
+                                render: (data, type, row) => {
+                                    if (type !== 'display') return data;
+                                    const approved = row.approved_ot_count
+                                        ? ` <span class="text-green-700">(${row.approved_ot_count} approved)</span>` : '';
+                                    return `${Number(data).toLocaleString()} attendance · ${Number(row.overtime_count).toLocaleString()} OT${approved}`;
+                                }
+                            },
+                            { data: 'imported_by', defaultContent: '', render: $.fn.dataTable.render.text() },
+                            {
+                                data: (row) => row.imported_at || row.created_at, // older imports have no imported_at
+                                orderable: true,
+                                render: (data, type) => type === 'display' && data
+                                    ? new Date(data).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+                                    : data
+                            },
+                            {
+                                data: null,
+                                orderable: false,
+                                searchable: false,
+                                className: 'noVis all text-center',
+                                render: (data, type, row) => {
+                                    const loaded = row.status === 'load';
+                                    return `<div class="flex items-center justify-center gap-1.5">
+                                        <button type="button" title="${loaded ? 'Unload' : 'Load'}" class="row-btn ${loaded ? 'restore' : 'approve'}" onclick="toggleImport(${row.id})">
+                                            <i class="fa-solid ${loaded ? 'fa-upload' : 'fa-download'}"></i></button>
+                                        <button type="button" title="Edit" class="row-btn edit" onclick="openImportEdit(${row.id})"><i class="fas fa-pen"></i></button>
+                                        <button type="button" title="Delete" class="row-btn cancel" onclick="openImportDelete(${row.id})"><i class="fas fa-trash"></i></button>
+                                    </div>`;
+                                }
+                            }
+                        ]
+                    });
+                    // Highlight the loaded import
+                    table.rows().every(function() {
+                        $(this.node()).toggleClass('bg-green-50/60', this.data().status === 'load');
                     });
                 },
                 error: function(xhr, status, error) {
                     console.error('Error fetching biometric history:', error);
                 }
             });
-            // Delegate event to dynamically created buttons
-            $(document).on('click', '.file-action-btn', function() {
-                const id = $(this).data('id');
-                const status = $(this).data('status');
-                handleFileAction(id);
-            });
-            // Example placeholder action
-            function handleFileAction(id) {
-                console.log("Toggling status for ID:", id);
-                $.ajax({
-                    url: "{{ route('biometric-history-list.toggle-status') }}",
-                    type: "POST",
-                    data: {
-                        id: id,
-                        _token: "{{ csrf_token() }}"
-                    },
-                    success: function(response) {
-                        console.log("Status toggled:", response);
-                        Swal.fire({
-                            icon: 'success',
-                            title: 'Status Updated',
-                            text: `File "${response.data.title}" is now "${response.data.status.toUpperCase()}"`,
-                            timer: 1500,
-                            showConfirmButton: false
-                        }).then(() => {
-                            // Reload the page after the alert closes
-                            location.reload();
-                        });
-
-                        // Reload list after change
-                        loadImportedCsvList();
-                    },
-                    error: function(xhr) {
-                        console.error("Error:", xhr.responseText);
-                        Swal.fire({
-                            icon: 'error',
-                            title: 'Failed!',
-                            text: 'Unable to update status.',
-                        });
-                    }
-                });
-            }
-
         }
 
+        function openImportModal(selector) {
+            $(selector).removeClass('hidden').addClass('flex');
+        }
+
+        function closeImportModal(selector) {
+            $(selector).addClass('hidden').removeClass('flex');
+        }
+
+        function showAjaxError(xhr, title) {
+            const errors = xhr.responseJSON?.errors;
+            const text = errors ? Object.values(errors).flat().join('\n') : (xhr.responseJSON?.message || 'Please try again.');
+            Swal.fire({ icon: 'error', title: title, text: text });
+        }
+
+        // ---- Load / Unload
+        function toggleImport(id) {
+            const item = importsById[id];
+            if (!item) return;
+            const loading = item.status !== 'load';
+            Swal.fire({
+                title: loading ? `Load "${escapeHtml(item.title)}"?` : `Unload "${escapeHtml(item.title)}"?`,
+                text: loading ? 'It becomes the active import; any other loaded import is unloaded.' : 'No import will be active until another one is loaded.',
+                icon: 'question',
+                showCancelButton: true,
+                confirmButtonColor: '#16a34a',
+                confirmButtonText: loading ? 'Load' : 'Unload'
+            }).then((result) => {
+                if (!result.isConfirmed) return;
+                $.ajax({
+                    url: "{{ route('biometric-history-list.toggle-status') }}",
+                    type: 'POST',
+                    data: { id: id, _token: csrfToken },
+                    success: function(response) {
+                        Swal.fire({
+                            icon: 'success',
+                            title: 'Status updated',
+                            text: `"${response.data.title}" is now ${response.data.status === 'load' ? 'loaded' : 'unloaded'}.`,
+                            timer: 1500,
+                            showConfirmButton: false
+                        }).then(() => location.reload()); // other parts of the app read the loaded import
+                    },
+                    error: (xhr) => showAjaxError(xhr, 'Unable to update status')
+                });
+            });
+        }
+
+        // ---- Edit
+        function openImportEdit(id) {
+            const item = importsById[id];
+            if (!item) return;
+            $('#edit-import-id').val(item.id);
+            $('#edit-import-title').val(item.title || '');
+            $('#edit-import-start').val(dateOnly(item.period_start));
+            $('#edit-import-end').val(dateOnly(item.period_end));
+            openImportModal('#editImportModal');
+        }
+
+        function saveImportEdit() {
+            const id = $('#edit-import-id').val();
+            $.ajax({
+                url: importRoutes.update.replace('__ID__', id),
+                type: 'POST',
+                data: {
+                    _token: csrfToken,
+                    _method: 'PUT',
+                    title: $('#edit-import-title').val().trim(),
+                    period_start: $('#edit-import-start').val(),
+                    period_end: $('#edit-import-end').val(),
+                },
+                success: function(response) {
+                    closeImportModal('#editImportModal');
+                    Swal.fire({ icon: 'success', title: response.message, timer: 1200, showConfirmButton: false });
+                    loadImportedCsvList();
+                },
+                error: (xhr) => showAjaxError(xhr, 'Could not save')
+            });
+        }
+
+        // ---- Delete (with all related data)
+        const TABLE_LABELS = {
+            attendance_records: 'Attendance records',
+            overtimes: 'Overtime records',
+            leaves: 'Leaves',
+            certificate_attendance: 'Certificates of attendance',
+            schedule_adjustments: 'Schedule adjustments',
+            security_attendance: 'Security attendance',
+            dtr_report: 'DTR rows',
+            csvimports: 'Payroll rows',
+        };
+
+        function openImportDelete(id) {
+            const item = importsById[id];
+            if (!item) return;
+            deletingImport = item;
+            $('#delete-import-confirm').prop('disabled', true);
+            $('#delete-import-body').html('<p class="text-gray-500">Checking what will be deleted…</p>');
+            openImportModal('#deleteImportModal');
+
+            $.getJSON(importRoutes.preview.replace('__ID__', id), function(r) {
+                const listOf = (counts) => Object.entries(TABLE_LABELS)
+                    .map(([table, label]) => ({ label, count: (counts || {})[table] || 0 }))
+                    .filter(x => x.count > 0)
+                    .map(x => `<li class="flex justify-between"><span>${x.label}</span><span class="font-semibold">${x.count.toLocaleString()}</span></li>`)
+                    .join('');
+                const section = (heading, items) => items
+                    ? `<p class="text-xs font-semibold text-gray-700">${heading}</p><ul class="text-xs space-y-1 border border-gray-200 rounded p-2 bg-gray-50">${items}</ul>`
+                    : '';
+                const lines = listOf(r.deleted);
+                const movedLines = (r.moved || [])
+                    .map(m => `<li class="flex justify-between"><span>To <strong>${escapeHtml(m.title)}</strong></span><span class="font-semibold">${Number(m.total).toLocaleString()}</span></li>`)
+                    .join('');
+                const keptLines = listOf(r.kept);
+                const loadedNote = r.is_loaded
+                    ? `<p class="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1">This is the loaded import. ${r.next_loaded ? `<strong>${escapeHtml(r.next_loaded.title)}</strong> will be loaded instead.` : 'No other import exists, so nothing will be loaded.'}</p>`
+                    : '';
+                const approvedNote = r.approved_overtime
+                    ? `<p class="text-xs text-red-800 bg-red-50 border border-red-200 rounded px-2 py-1"><i class="fa-solid fa-triangle-exclamation mr-1"></i>${r.approved_overtime} <strong>approved</strong> overtime ${r.approved_overtime === 1 ? 'record' : 'records'} will be deleted.</p>`
+                    : '';
+
+                $('#delete-import-body').html(`
+                    <p>This permanently deletes <strong>${escapeHtml(item.title)}</strong> and the days no other import's payroll period covers.</p>
+                    ${section('Deleted', lines) || '<p class="text-xs text-gray-500">No records will be deleted.</p>'}
+                    ${section('Moved to imports whose payroll period covers those days', movedLines)}
+                    ${section('Kept, no longer tied to an import', keptLines)}
+                    ${approvedNote}
+                    ${loadedNote}
+                    <label class="block">
+                        <span class="block text-xs text-gray-700 mb-1">Type the import title to confirm:</span>
+                        <input type="text" id="delete-import-typed" autocomplete="off" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-red-500" placeholder="${escapeHtml(item.title)}">
+                    </label>
+                `);
+                $('#delete-import-typed').on('input', function() {
+                    $('#delete-import-confirm').prop('disabled', this.value.trim() !== String(item.title).trim());
+                }).trigger('focus');
+            }).fail((xhr) => {
+                closeImportModal('#deleteImportModal');
+                showAjaxError(xhr, 'Could not check this import');
+            });
+        }
+
+        function confirmImportDelete() {
+            if (!deletingImport) return;
+            $('#delete-import-confirm').prop('disabled', true).text('Deleting…');
+            $.ajax({
+                url: importRoutes.destroy.replace('__ID__', deletingImport.id),
+                type: 'POST',
+                data: { _token: csrfToken, _method: 'DELETE', confirm_title: $('#delete-import-typed').val() },
+                success: function(r) {
+                    closeImportModal('#deleteImportModal');
+                    Swal.fire({
+                        icon: 'success',
+                        title: 'Import deleted',
+                        html: `${Number(r.total).toLocaleString()} related records were deleted.` +
+                            (r.moved_total ? `<br>${Number(r.moved_total).toLocaleString()} records were moved to other imports.` : '') +
+                            (r.now_loaded ? `<br><strong>${escapeHtml(r.now_loaded.title)}</strong> is now loaded.` : ''),
+                    }).then(() => location.reload());
+                },
+                error: (xhr) => showAjaxError(xhr, 'Could not delete'),
+                complete: () => $('#delete-import-confirm').text('Delete import and its data')
+                    .prop('disabled', ($('#delete-import-typed').val() || '').trim() !== String(deletingImport?.title).trim())
+            });
+        }
 
         /** -----------------------------
          *  GENERATE BIOMETRIC TITLE
@@ -611,6 +802,7 @@
          * ------------------------------*/
         const $uploadArea = $('#uploadArea');
         let csvDataGlobal = '';
+        const MAX_UPLOAD_MB = 20;
 
         window.handleFiles = function(files) {
             $('.csv-output').show();
@@ -628,6 +820,14 @@
                 return;
             }
 
+            // Same limit as PHP (docker/php/uploads.ini); the proxy refuses bigger bodies with a 413
+            if (file.size > MAX_UPLOAD_MB * 1024 * 1024) {
+                Swal.fire('File too large',
+                    `The file is ${(file.size / 1024 / 1024).toFixed(1)} MB; the maximum is ${MAX_UPLOAD_MB} MB.`, 'warning');
+                return;
+            }
+
+            currentBiometricImportId = null; // set again once this upload succeeds
             $('.detailsLoader, #loaderOverlay').show();
 
             const formData = new FormData();
@@ -654,6 +854,8 @@
             console.log("Upload Result:", result);
 
             currentBiometricImportId = result.biometric_imports_id ?? null;
+            if (result.period_start) $('#period-start').val(result.period_start.substring(0, 10));
+            if (result.period_end) $('#period-end').val(result.period_end.substring(0, 10));
 
             if (file.name.endsWith('.csv') && result.csvData) {
                 csvDataGlobal = result.csvData;
@@ -679,6 +881,12 @@
          *  UPLOAD / IMPORT LOGIC
          * ------------------------------*/
         window.uploadCSV = function() {
+            // The upload creates the import and its attendance; without it there is nothing to import
+            if (!currentBiometricImportId) {
+                Swal.fire('Upload the file first',
+                    'Upload the biometric file first; the last upload did not finish.', 'warning');
+                return;
+            }
             $.ajax({
                 url: "{{ route('upload.exist') }}",
                 type: 'POST',
@@ -729,34 +937,22 @@
                     id: currentBiometricImportId,
                     title: title,
                     imported_by: imported_by,
-                    total_rows: total_rows
+                    total_rows: total_rows,
+                    period_start: $('#period-start').val(),
+                    period_end: $('#period-end').val()
                 },
-                success: function(response) {
-                    $.ajax({
-                        url: "{{ route('import.csv') }}",
-                        type: 'POST',
-                        headers: {
-                            'X-CSRF-TOKEN': csrfToken
-                        },
-                        data: {
-                            biometric_imports_id: response.id,
-                        },
-                        success: () => {
-                            Swal.fire({
-                                icon: "success",
-                                title: "CSV imported successfully!",
-                                showConfirmButton: false,
-                                timer: 1500,
-                                width: "400px"
-                            }).then(() => {
-                                // Reload the page after the alert closes
-                                // location.reload();
-                            });
-                        },
-                        error: handleAjaxError
+                success: function() {
+                    // Payroll rows (csvimports) are loaded by Report Generation after it writes the
+                    // payroll file; loading here picked up a stale file or failed with "File not found."
+                    Swal.fire({
+                        icon: "success",
+                        title: "CSV imported successfully!",
+                        showConfirmButton: false,
+                        timer: 1500,
+                        width: "400px"
                     });
-                    console.log(response.id);
-                }
+                },
+                error: handleAjaxError
             });
 
         }
@@ -798,7 +994,13 @@
         function handleAjaxError(xhr, status, error) {
             $('.detailsLoader, #loaderOverlay').hide();
             console.error('AJAX Error:', error);
-            Swal.fire('Error', 'Something went wrong. Please try again.', 'error');
+            let message = xhr.responseJSON?.message;
+            if (xhr.status === 413) {
+                message = `The file is too large for the server (max ${MAX_UPLOAD_MB} MB).`;
+            } else if (!message) {
+                message = 'Something went wrong' + (xhr.status ? ` (HTTP ${xhr.status})` : '') + '. Please try again.';
+            }
+            Swal.fire('Error', message, 'error');
         }
 
         window.closeModal = () => $('#csvModal').hide();

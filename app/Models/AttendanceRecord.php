@@ -2,12 +2,13 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\Auditable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class AttendanceRecord extends Model
 {
-    use HasFactory;
+    use Auditable, HasFactory;
     protected $fillable = [
         'id',
         'employee_management_id',
@@ -25,6 +26,11 @@ class AttendanceRecord extends Model
         'late_hours',
         'late_minutes',
         'leaves',
+        'is_manual',
+        'original_earliest_time',
+        'original_latest_time',
+        'edited_by',
+        'edited_at',
         'created_at',
         'updated_at',
     ];

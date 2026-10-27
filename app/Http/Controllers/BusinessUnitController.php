@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\BusinessUnit;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 
 class BusinessUnitController extends Controller
@@ -130,7 +131,18 @@ class BusinessUnitController extends Controller
     public function destroy($id)
     {
         $businessUnit = BusinessUnit::findOrFail($id);
-        $businessUnit->delete();
+
+        try {
+            $businessUnit->delete();
+        } catch (QueryException $e) {
+            if ($e->getCode() === '23503') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Cannot delete this business unit: it still has companies.'
+                ], 422);
+            }
+            throw $e;
+        }
 
         return response()->json([
             'success' => true,

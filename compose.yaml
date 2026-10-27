@@ -6,6 +6,7 @@ services:
     container_name: attendance_app
     volumes:
       - .:/var/www/html
+      - ./docker/php/uploads.ini:/usr/local/etc/php/conf.d/uploads.ini:ro
     expose:
       - "9000"
     networks:

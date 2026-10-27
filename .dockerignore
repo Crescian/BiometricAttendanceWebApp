@@ -22,3 +22,7 @@
 **/values.dev.yaml
 LICENSE
 README.md
+# Runtime data: the project is bind-mounted at /var/www/html, so none of this belongs in the image
+storage/app/public/python
+storage/logs
+backups

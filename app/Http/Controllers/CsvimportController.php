@@ -2,11 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\AuditLogger;
 use App\Models\Csvimport;
 use App\Models\BiometricHistoryList;
 use App\Services\AttendanceProcessor;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
@@ -102,12 +102,13 @@ class CsvimportController extends Controller
         $uploadedFile->storeAs('public/python', $fileName);
 
         $csvPath    = storage_path("app/public/python/{$fileName}");
-        $outputDir  = public_path('python/');
+        $outputDir  = storage_path('app/reports/');
 
         // Create the real biometric_imports row here (instead of guessing a future id)
         // so attendance_records/overtimes seeded below always match the id that
         // biometric-history-list.store() later fills in and every other controller
         // reads via BiometricHistoryList::getLoadedRecordId().
+        $previouslyLoaded = BiometricHistoryList::where('status', 'load')->pluck('id')->all();
         BiometricHistoryList::where('status', 'load')->update(['status' => 'unload']);
         $biometricImport = BiometricHistoryList::create([
             'title'       => $request->input('title', $fileName),
@@ -127,21 +128,60 @@ class CsvimportController extends Controller
             return response()->json(['error' => 'Uploaded file not found on disk'], 500);
         }
 
+        $fileEvidence = [
+            'file' => $uploadedFile->getClientOriginalName(),
+            'bytes' => $uploadedFile->getSize(),
+            'sha256' => hash_file('sha256', $csvPath),
+            'biometric_import_id' => $biometricImportId,
+            'previously_loaded_import_ids' => $previouslyLoaded,
+        ];
+
         try {
             $result = $processor->processFile($csvPath, $outputDir, $biometricImportId);
 
             if (!empty($result['error'])) {
+                AuditLogger::record('import.biometric_file_processed', [
+                    'category' => 'import', 'action' => 'import', 'outcome' => 'failure',
+                    'target' => ['BiometricHistoryList', $biometricImportId],
+                    'description' => 'Biometric file import failed: '.$result['error'],
+                    'metadata' => $fileEvidence + ['error' => $result['error']],
+                ]);
+
                 return response()->json(['error' => $result['error']], 500);
             }
+
+            $batch = BiometricHistoryList::find($biometricImportId);
+
+            AuditLogger::record('import.biometric_file_processed', [
+                'category' => 'import', 'action' => 'import',
+                'target' => ['BiometricHistoryList', $biometricImportId],
+                'description' => 'Imported biometric file '.$fileEvidence['file']
+                    .' as import #'.$biometricImportId.' ('.($batch->period_start ?? '?').' to '.($batch->period_end ?? '?').')',
+                'metadata' => $fileEvidence + [
+                    'period_start' => $batch->period_start ?? null,
+                    'period_end' => $batch->period_end ?? null,
+                    'attendance_records' => \DB::table('attendance_records')->where('biometric_imports_id', $biometricImportId)->count(),
+                    'overtimes' => \DB::table('overtimes')->where('biometric_imports_id', $biometricImportId)->count(),
+                    'stats' => $result['stats'] ?? null,
+                ],
+            ]);
 
             return response()->json([
                 'message' => 'File processed successfully',
                 'preview' => $result['preview'] ?? null,
                 'stats'   => $result['stats']   ?? null,
                 'biometric_imports_id' => $biometricImportId,
+                'period_start' => $batch->period_start ?? null,
+                'period_end'   => $batch->period_end ?? null,
             ], 200);
 
         } catch (\Throwable $e) {
+            AuditLogger::record('import.biometric_file_processed', [
+                'category' => 'import', 'action' => 'import', 'outcome' => 'failure',
+                'target' => ['BiometricHistoryList', $biometricImportId],
+                'description' => 'Biometric file import failed: '.$e->getMessage(),
+                'metadata' => $fileEvidence + ['error' => $e->getMessage()],
+            ]);
             Log::error('Attendance processing error: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
             return response()->json(['error' => 'Processing failed: ' . $e->getMessage()], 500);
         }
@@ -152,283 +192,104 @@ class CsvimportController extends Controller
         set_time_limit(0);
         ini_set('max_execution_time', 0);
 
-        $biometricImportId = $this->biometricHistoryList->getLoadedRecordId();
+        // The payroll period is chosen at generation time; records from every
+        // biometric import dated inside it are included.
+        $v = $request->validate([
+            'period_start' => 'required|date',
+            'period_end'   => 'required|date|after_or_equal:period_start',
+        ]);
+        $start = \Carbon\Carbon::parse($v['period_start'])->toDateString();
+        $end   = \Carbon\Carbon::parse($v['period_end'])->toDateString();
 
         try {
-            $result = $processor->generatePayrollReport($biometricImportId);
+            $result = $processor->generatePayrollReport($start, $end);
 
             if (!empty($result['error'])) {
-                return response()->json(['error' => $result['error']], 500);
+                AuditLogger::record('report.payroll_generated', [
+                    'category' => 'report', 'action' => 'generate', 'outcome' => 'failure',
+                    'description' => "Payroll report for {$start} to {$end} not generated: ".$result['error'],
+                    'metadata' => ['period_start' => $start, 'period_end' => $end, 'error' => $result['error']],
+                ]);
+
+                return response()->json(['error' => $result['error']], 422);
             }
+
+            $stats = $result['stats'] ?? [];
+
+            // Evidence of exactly what was produced
+            $outputs = [];
+            foreach (['payroll file.csv', 'payroll file.xlsx', 'reportdtr.xlsx', 'security.xlsx'] as $name) {
+                $path = AttendanceProcessor::reportPath($name);
+                if (is_file($path)) {
+                    $outputs[$name] = ['bytes' => filesize($path), 'sha256' => hash_file('sha256', $path)];
+                }
+            }
+            AuditLogger::record('report.payroll_generated', [
+                'category' => 'report', 'action' => 'generate',
+                'description' => "Generated payroll report for {$start} to {$end}",
+                'metadata' => [
+                    'period_start' => $start,
+                    'period_end' => $end,
+                    'outputs' => $outputs,
+                    'imports' => $stats['imports'] ?? [],
+                    'missing_dates' => $stats['missing_dates'] ?? [],
+                    'security_guards' => $stats['security_guards'] ?? 0,
+                ],
+            ]);
 
             return response()->json([
                 'message' => 'Report generated successfully',
-                'stats'   => $result['stats'] ?? null,
-                'biometric_imports_id' => $biometricImportId,
+                'stats'   => $stats,
+                'period'          => $stats['period'] ?? null,
+                'missing_dates'   => $stats['missing_dates'] ?? [],
+                'imports'         => $stats['imports'] ?? [],
+                'security_guards' => $stats['security_guards'] ?? 0,
             ], 200);
 
         } catch (\Throwable $e) {
+            AuditLogger::record('report.payroll_generated', [
+                'category' => 'report', 'action' => 'generate', 'outcome' => 'failure',
+                'description' => "Payroll report for {$start} to {$end} failed: ".$e->getMessage(),
+                'metadata' => ['period_start' => $start, 'period_end' => $end, 'error' => $e->getMessage()],
+            ]);
             Log::error('Report generation error: ' . $e->getMessage());
             return response()->json(['error' => 'Report generation failed: ' . $e->getMessage()], 500);
         }
     }
 
-    public function finalizeAttendanceCertificates(Request $request, AttendanceProcessor $processor)
-    {
-        $certificatesPath = public_path('attendance_certificates.json');
-        $overtimeLogsPath = public_path('overtime_logs.json');
-        $outputDir        = public_path('python/');
-
-        try {
-            $result = $processor->finalizeCertificates($certificatesPath, $overtimeLogsPath, $outputDir);
-
-            if (!empty($result['error'])) {
-                return response()->json(['error' => $result['error']], 500);
-            }
-
-            return response()->json([
-                'message' => 'Attendance certificates finalized successfully',
-                'stats'   => $result['stats'] ?? null,
-            ], 200);
-
-        } catch (\Throwable $e) {
-            Log::error('Certificate finalization error: ' . $e->getMessage());
-            return response()->json(['error' => 'Finalization failed: ' . $e->getMessage()], 500);
-        }
-    }
-
-    public function runEditOt(Request $request)
-    {
-        $v = $request->validate([
-            'id'          => 'required|string',
-            'firstName'   => 'required|string',
-            'lastName'    => 'required|string',
-            'date'        => 'required|date',
-            'originalIn'  => 'required|string',
-            'originalOut' => 'required|string',
-            'newIn'       => 'required|string',
-            'newOut'      => 'required|string',
-            'type'        => 'required|string',
-        ]);
-
-        $employeeName  = strtoupper($v['lastName']) . ', ' . strtoupper($v['firstName']);
-        $recordDate    = \Carbon\Carbon::parse($v['date'])->toDateString();
-        $biometricImportId = $this->biometricHistoryList->getLoadedRecordId();
-
-        $emp = \DB::table('employee_management')
-            ->where('unique_id', $v['id'])
-            ->orWhere('employee_name', $employeeName)
-            ->first();
-
-        if (!$emp) {
-            return response()->json(['error' => 'Employee not found'], 404);
-        }
-
-        // Update attendance record with new times
-        \DB::table('attendance_records')
-            ->where('employee_management_id', $emp->id)
-            ->where('record_date', $recordDate)
-            ->update([
-                'earliest_time' => $v['newIn'],
-                'latest_time'   => $v['newOut'],
-                'updated_at'    => now(),
-            ]);
-
-        // Recalculate overtime using ComputationService
-        $computation    = app(\App\Services\ComputationService::class);
-        $nonWorkingDays = \DB::table('custom_dates')->pluck('record_date')->map(fn($d) => substr($d, 0, 10))->toArray();
-        $employeeData   = \DB::table('employee_management')->get()->toArray();
-
-        $rowData = [
-            'employee_name'          => $employeeName,
-            'employee_management_id' => $emp->id,
-            'record_date'            => $recordDate,
-            'earliest_time'          => $v['newIn'],
-            'latest_time'            => $v['newOut'],
-            'department'             => $emp->department ?? '',
-            'leaves'                 => false,
-        ];
-
-        [$ordOt, $ordNd, $ordNdOt] = $computation->autocalculateOrd(
-            $rowData, $nonWorkingDays, $employeeData, null, null, $biometricImportId
-        );
-
-        $rdResult = $computation->autocalculateRdAndOvertime($rowData, collect($employeeData));
-
-        $hm = function ($h) {
-            $m = (int) round($h * 60);
-            return sprintf('%02d:%02d', intdiv($m, 60), $m % 60);
-        };
-
-        // Update the overtime record if one exists
-        \DB::table('overtimes')
-            ->where('employee_name', $employeeName)
-            ->where('record_date', $recordDate)
-            ->where('biometric_imports_id', $biometricImportId)
-            ->update([
-                'earliest_time' => $v['newIn'],
-                'latest_time'   => $v['newOut'],
-                'ord_ot'        => $hm($ordOt),
-                'ord_nd'        => $hm($ordNd),
-                'ord_nd_ot'     => $hm($ordNdOt),
-                'rd'            => $hm($rdResult['rd']),
-                'rd_ot'         => $hm($rdResult['rd_ot']),
-                'rd_nd'         => $hm($rdResult['rd_nd']),
-                'rd_nd_ot'      => $hm($rdResult['rd_nd_ot']),
-                'updated_at'    => now(),
-            ]);
-
-        return response()->json([
-            'message' => 'OK',
-            'output'  => ['Overtime recalculated successfully'],
-        ]);
-    }
-
-
-    public function saveOvertimeJson(Request $request)
-    {
-        // Validate that employee_dates is an array
-        $request->validate([
-            'employee_dates' => 'required|array'
-        ]);
-
-        // Flatten the array if needed (e.g., if nested arrays are within arrays)
-        $flattenedArray = array_map(function ($entry) {
-            // Convert MM/DD/YYYY to YYYY-MM-DD
-            $originalDate = $entry[3];
-            $date = \DateTime::createFromFormat('m/d/Y', $originalDate);
-            $formattedDate = $date ? $date->format('Y-m-d') : $originalDate;
-            return [
-                $entry[0], // Type of OT
-                strtoupper($entry[2]), // Last Name (uppercase)
-                strtoupper($entry[1]), // First Name (uppercase)
-                $formattedDate, // Date
-                $entry[4], // Start Time
-                $entry[5]  // End Time
-            ];
-        }, $request->employee_dates);
-
-        // Convert to JSON
-        $jsonData = json_encode($flattenedArray, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
-
-        // Save to the same path as your custom holiday JSON
-        Storage::disk('public')->put('python/employee_dates.json', $jsonData);
-
-        return response()->json(['message' => 'Overtime records saved successfully!']);
-    }
-
-    public function appendDate(Request $request)
-    {
-        $file = public_path('employee_dates.json');
-
-        $data = file_exists($file)
-            ? (json_decode(file_get_contents($file), true) ?? [])
-            : [];
-
-        // Append the new entry
-        $data[] = [
-            $request->input('type'),
-            strtoupper($request->input('lastName')),
-            strtoupper($request->input('firstName')),
-            $request->input('date'),
-            $request->input('earliestTime'),
-            $request->input('latestTime')
-        ];
-
-        // Save back to JSON file
-        file_put_contents($file, json_encode($data, JSON_PRETTY_PRINT));
-
-        return response()->json(['success' => true]);
-    }
-
-    public function appendAttendanceCertificates(Request $request)
-    {
-        $file = public_path('attendance_certificates.json');
-
-        // Load existing data
-        $data = [];
-        if (file_exists($file)) {
-            $data = json_decode(file_get_contents($file), true);
-        }
-
-        // Append the new entry as an associative array (object in JSON)
-        $data[] = [
-            "id" => $request->input('id'),
-            "First Name" => strtoupper($request->input('firstName')),
-            "Last Name" => strtoupper($request->input('lastName')),
-            "record_date" => $request->input('date'),
-            "Earliest Time" => $request->input('earliestTime'),
-            "Latest Time" => $request->input('latestTime'),
-            "Department Name" => $request->input('departmentName'),
-            "Attendance Area" => $request->input('attendanceArea'),
-            "Serial Number" => $request->input('serialNumber'),
-            "Schedule" => $request->input('schedule'),
-            "Total Non-Working Days Present" => (int) $request->input('nonWorkingDays', 0),
-            "late" => filter_var($request->input('late', false), FILTER_VALIDATE_BOOLEAN),
-            "late_hours" => (int) $request->input('lateHours', 0),
-            "late_minutes" => (int) $request->input('lateMinutes', 0),
-            "out_time_required" => $request->input('outTimeRequired'),
-            "action" => "add"
-        ];
-
-        // Save back to JSON file
-        file_put_contents($file, json_encode($data, JSON_PRETTY_PRINT));
-
-        return response()->json([
-            'success' => true,
-            'data' => $data
-        ]);
-    }
-
-    public function count()
-    {
-        $file = public_path('employee_dates.json');
-
-        if (!file_exists($file)) {
-            return response()->json(['count' => 0]);
-        }
-
-        $data = json_decode(file_get_contents($file), true);
-        $count = is_array($data) ? count($data) : 0;
-
-        return response()->json(['count' => $count]);
-    }
-
-    public function saveCustomHolidayJson(Request $request)
-    {
-        // Validate the incoming data
-        $request->validate([
-            'custom_holiday' => 'required|array'
-        ]);
-
-        // Flatten the array using array_column
-        $flattenedArray = array_column($request->custom_holiday, 0);
-
-        // Convert the flattened array to JSON
-        $jsonData = json_encode($flattenedArray, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
-
-        // Save the JSON file in the storage/app/public/python folder
-        Storage::disk('public')->put('python/custom_holiday.json', $jsonData);
-
-        return response()->json(['message' => 'Custom Holiday records saved successfully!']);
-    }
     public function importCSV(Request $request)
     {
         // Validate the request
-        $request->validate([
-            'biometric_imports_id' => 'required|integer',
+        $v = $request->validate([
+            'biometric_imports_id' => 'required_without:period_start|nullable|integer',
+            'period_start'         => 'nullable|date|required_with:period_end',
+            'period_end'           => 'nullable|date|required_with:period_start|after_or_equal:period_start',
         ]);
 
-        // $biometric_imports_id = '5';
+        // Without an explicit period (upload page), fall back to the import's own period.
+        if (!empty($v['period_start'])) {
+            $periodStart = \Carbon\Carbon::parse($v['period_start'])->toDateString();
+            $periodEnd   = \Carbon\Carbon::parse($v['period_end'])->toDateString();
+        } else {
+            $batch       = BiometricHistoryList::find($v['biometric_imports_id']);
+            $periodStart = $batch && $batch->period_start ? substr($batch->period_start, 0, 10) : null;
+            $periodEnd   = $batch && $batch->period_end ? substr($batch->period_end, 0, 10) : null;
+        }
 
         // Get the current date
         $dates = now()->toDateString();
 
-        // Delete existing data for today's date
-        Csvimport::where('entry_date', $dates)->delete();
+        // Re-generating a payroll period replaces its earlier payroll data. Rows saved
+        // before periods were recorded are still cleared per entry date, as before.
+        Csvimport::where(function ($q) use ($periodStart, $periodEnd) {
+            $q->whereNotNull('period_start')
+                ->where('period_start', $periodStart)->where('period_end', $periodEnd);
+        })->orWhere(function ($q) use ($dates) {
+            $q->whereNull('period_start')->where('entry_date', $dates);
+        })->delete();
 
         // Path to the .csv file
-        $path = public_path('python/payroll file.csv');
+        $path = AttendanceProcessor::reportPath('payroll file.csv');
 
         // Check if the file exists
         if (!file_exists($path)) {
@@ -456,7 +317,9 @@ class CsvimportController extends Controller
         foreach ($jsonData as $data) {
             $mappedData = [
                 'entry_date' => $dates,
-                'biometric_imports_id' => $request->biometric_imports_id, // 👈 Add this
+                'biometric_imports_id' => $v['biometric_imports_id'] ?? null,
+                'period_start' => $periodStart,
+                'period_end' => $periodEnd,
                 'basic' => $data['Basic'] ?? null,
                 'dh' => $data['DH'] ?? null,
                 'dh_nd' => $data['DH-ND'] ?? null,
@@ -504,11 +367,24 @@ class CsvimportController extends Controller
             ];
 
             Csvimport::create($mappedData);
+            $loaded = ($loaded ?? 0) + 1;
         }
+
+        AuditLogger::record('payroll.loaded', [
+            'category' => 'report', 'action' => 'import',
+            'description' => 'Loaded '.($loaded ?? 0)." payroll rows for {$periodStart} to {$periodEnd}",
+            'metadata' => [
+                'rows' => $loaded ?? 0,
+                'period_start' => $periodStart,
+                'period_end' => $periodEnd,
+                'biometric_imports_id' => $v['biometric_imports_id'] ?? null,
+                'source_sha256' => is_file($path) ? hash_file('sha256', $path) : null,
+            ],
+        ]);
 
         return response()->json([
             'message' => 'CSV imported successfully.',
-            'id' => $request->biometric_imports_id
+            'id' => $v['biometric_imports_id'] ?? null,
         ]);
     }
 
@@ -647,8 +523,11 @@ class CsvimportController extends Controller
     }
     public function exportCsv(Request $request)
     {
-        // Query the database for records with the given entry_date
-        $records = Csvimport::all();
+        // Only the payroll period that was just generated, when one is given
+        $records = $request->filled(['period_start', 'period_end'])
+            ? Csvimport::where('period_start', $request->period_start)
+                ->where('period_end', $request->period_end)->get()
+            : Csvimport::all();
 
         // Create a new CSV writer instance
         $csv = Writer::createFromFileObject(new SplTempFileObject());
@@ -718,107 +597,6 @@ class CsvimportController extends Controller
         return response((string) $csv, 200)
             ->header('Content-Type', 'text/csv')
             ->header('Content-Disposition', 'attachment; filename="' . $filename . '"');
-    }
-
-    // public function removeEntry(Request $request)
-    // {
-    //     // 1) Validate incoming index
-    //     $request->validate([
-    //         'index' => 'required|integer|min:0',
-    //     ]);
-
-    //     $index = $request->input('index');
-
-    //     // 2) Locate the JSON file
-    //     // Adjust path if you store it elsewhere
-    //     $path = public_path('employee_dates.json');
-
-    //     if (!file_exists($path)) {
-    //         return response()->json(['message' => 'File not found.'], 404);
-    //     }
-
-    //     // 3) Read + decode
-    //     $data = json_decode(file_get_contents($path), true);
-    //     if (!is_array($data) || !isset($data[$index])) {
-    //         return response()->json(['message' => 'Entry not found.'], 404);
-    //     }
-
-    //     // 4) Remove the entry and re-save
-    //     array_splice($data, $index, 1);
-    //     file_put_contents($path, json_encode($data, JSON_PRETTY_PRINT));
-
-    //     // 5) Respond with success (and new length, if you like)
-    //     return response()->json([
-    //         'message' => 'Entry removed.',
-    //         'total'   => count($data),
-    //     ]);
-    // }
-    public function removeEntry(Request $request)
-    {
-        $request->validate([
-            'index' => 'required|integer|min:0',
-        ]);
-
-        $index = $request->input('index');
-
-        // Path to files
-        $employeeDatesPath = public_path('employee_dates.json');
-        $overtimeLogsPath  = public_path('overtime_logs.json');
-
-        if (!file_exists($employeeDatesPath)) {
-            return response()->json(['message' => 'employee_dates.json not found.'], 404);
-        }
-
-        // --- Step 1: Remove from employee_dates.json ---
-        $employeeDates = json_decode(file_get_contents($employeeDatesPath), true);
-
-        if (!is_array($employeeDates) || !isset($employeeDates[$index])) {
-            return response()->json(['message' => 'Entry not found.'], 404);
-        }
-
-        // Get entry details before removing
-        $entry = $employeeDates[$index];
-
-        // Remove from employee_dates.json
-        array_splice($employeeDates, $index, 1);
-        file_put_contents($employeeDatesPath, json_encode($employeeDates, JSON_PRETTY_PRINT));
-
-        // --- Step 2: Update overtime_logs.json ---
-        if (file_exists($overtimeLogsPath)) {
-            $overtimeLogs = json_decode(file_get_contents($overtimeLogsPath), true);
-
-            // Handle if it's a single object or array
-            if ($overtimeLogs && (isset($overtimeLogs[0]) || $this->is_assoc($overtimeLogs))) {
-                $logs = isset($overtimeLogs[0]) ? $overtimeLogs : [$overtimeLogs];
-
-                foreach ($logs as &$log) {
-                    if (
-                        $log['Type'] === $entry[0] &&
-                        $log['Last Name'] === $entry[1] &&
-                        $log['First Name'] === $entry[2] &&
-                        $log['record_date'] === $entry[3] &&
-                        $log['Earliest Time'] === $entry[4] &&
-                        $log['Latest Time'] === $entry[5]
-                    ) {
-                        $log['approval_status'] = "false";
-                    }
-                }
-
-                // Save back
-                file_put_contents($overtimeLogsPath, json_encode($logs, JSON_PRETTY_PRINT));
-            }
-        }
-
-        return response()->json([
-            'message' => 'Entry removed and overtime log updated.',
-            'total'   => count($employeeDates),
-        ]);
-    }
-
-    // Helper: detect if array is associative
-    private function is_assoc(array $arr)
-    {
-        return array_keys($arr) !== range(0, count($arr) - 1);
     }
 
     public function create()

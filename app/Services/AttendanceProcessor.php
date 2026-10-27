@@ -9,9 +9,60 @@ use Illuminate\Support\Facades\Log;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use App\Services\ComputationService;
+use App\Services\SecurityReportService;
 
 class AttendanceProcessor
 {
+    /**
+     * Philippine public holidays per year (date => [title, custom_dates.holiday_type]).
+     * Movable holidays differ every year, so each year needs its own list from the yearly proclamation.
+     * Eid'l Fitr / Eid'l Adha are proclaimed separately; add them via the dashboard once announced.
+     */
+    public const PUBLIC_HOLIDAYS = [
+        2025 => [
+            '2025-01-01' => ["New Year's Day", 'Regular Holiday'],
+            '2025-04-17' => ['Maundy Thursday', 'Regular Holiday'],
+            '2025-04-18' => ['Good Friday', 'Regular Holiday'],
+            '2025-04-09' => ['Araw ng Kagitingan (Day of Valor)', 'Regular Holiday'],
+            '2025-05-01' => ['Labor Day', 'Regular Holiday'],
+            '2025-06-06' => ['Eid’l Adha', 'Regular Holiday'],
+            '2025-06-12' => ['Independence Day', 'Regular Holiday'],
+            '2025-08-25' => ['National Heroes Day', 'Regular Holiday'],
+            '2025-11-30' => ['Bonifacio Day', 'Regular Holiday'],
+            '2025-12-25' => ['Christmas Day', 'Regular Holiday'],
+            '2025-12-30' => ['Rizal Day', 'Regular Holiday'],
+            '2025-01-29' => ['Chinese New Year', 'Special Non-Working Holiday'],
+            '2025-04-19' => ['Black Saturday', 'Special Non-Working Holiday'],
+            '2025-08-21' => ['Ninoy Aquino Day', 'Special Non-Working Holiday'],
+            '2025-10-31' => ['All Saints’ Eve', 'Special Non-Working Holiday'],
+            '2025-11-01' => ['All Saints’ Day', 'Special Non-Working Holiday'],
+            '2025-12-08' => ['Feast of the Immaculate Conception', 'Special Non-Working Holiday'],
+            '2025-12-24' => ['Christmas Eve', 'Special Non-Working Holiday'],
+            '2025-12-31' => ['Last Day of the Year', 'Special Non-Working Holiday'],
+        ],
+        // Proclamation No. 1006, s. 2025
+        2026 => [
+            '2026-01-01' => ["New Year's Day", 'Regular Holiday'],
+            '2026-04-02' => ['Maundy Thursday', 'Regular Holiday'],
+            '2026-04-03' => ['Good Friday', 'Regular Holiday'],
+            '2026-04-09' => ['Araw ng Kagitingan (Day of Valor)', 'Regular Holiday'],
+            '2026-05-01' => ['Labor Day', 'Regular Holiday'],
+            '2026-06-12' => ['Independence Day', 'Regular Holiday'],
+            '2026-08-31' => ['National Heroes Day', 'Regular Holiday'],
+            '2026-11-30' => ['Bonifacio Day', 'Regular Holiday'],
+            '2026-12-25' => ['Christmas Day', 'Regular Holiday'],
+            '2026-12-30' => ['Rizal Day', 'Regular Holiday'],
+            '2026-02-17' => ['Chinese New Year', 'Special Non-Working Holiday'],
+            '2026-04-04' => ['Black Saturday', 'Special Non-Working Holiday'],
+            '2026-08-21' => ['Ninoy Aquino Day', 'Special Non-Working Holiday'],
+            '2026-11-01' => ['All Saints’ Day', 'Special Non-Working Holiday'],
+            '2026-11-02' => ['All Souls’ Day', 'Special Non-Working Holiday'],
+            '2026-12-08' => ['Feast of the Immaculate Conception', 'Special Non-Working Holiday'],
+            '2026-12-24' => ['Christmas Eve', 'Special Non-Working Holiday'],
+            '2026-12-31' => ['Last Day of the Year', 'Special Non-Working Holiday'],
+        ],
+    ];
+
     /**
      * Main entrypoint porting convert_file -> perform_conversion
      *
@@ -45,6 +96,9 @@ class AttendanceProcessor
 
         // 4. insert attendance_records and capture stats
         $stats = $this->insertAttendanceRecords($processed, $biometricImportsId);
+
+        // 4b. default the batch's payroll period to its first/last punch date
+        $this->setDefaultPeriod($biometricImportsId, $processed);
 
         // 5. Optionally calculate hours/OT for new records (we implement a basic version here)
         $this->calculateHoursForBiometricImport($biometricImportsId);
@@ -213,6 +267,20 @@ class AttendanceProcessor
     }
 
     /**
+     * Whether a schedule code ("16-1", "22-7") is paired as a night shift: any shift that ends at
+     * or before its start hour crosses midnight. The late-evening codes 15-23 / 15-24 (mirrors
+     * python nightShiftCodes) also pair overnight, since their clock-out can fall after midnight.
+     */
+    public static function isOvernightSchedule(?string $code): bool
+    {
+        if (!$code || !preg_match('/^\s*(\d{1,2})\s*-\s*(\d{1,2})\s*$/', $code, $m)) {
+            return false;
+        }
+
+        return (int) $m[2] % 24 <= (int) $m[1] % 24 || in_array("$m[1]-$m[2]", ['15-23', '15-24']);
+    }
+
+    /**
      * Process punches of a single employee (reliever / night / day)
      * Returns list of simple records with fields compatible with attendance_records
      */
@@ -302,16 +370,15 @@ class AttendanceProcessor
             return $records;
         }
 
-        // Non-reliever: decide night-vs-day using codes (mirrors python nightShiftCodes)
-        $nightShiftCodes = ["18-6","19-7","19-4","20-5","15-23","15-24","23-7","23-8"];
+        // Non-reliever: decide night-vs-day from the schedule code
         $hasNightShift = false;
         $tempForEmployee = $tempSched[$employeeName] ?? [];
         if (!empty($tempForEmployee)) {
             foreach ($tempForEmployee as $d=>$sc) {
-                if (in_array($sc, $nightShiftCodes)) { $hasNightShift = true; break; }
+                if (self::isOvernightSchedule($sc)) { $hasNightShift = true; break; }
             }
         }
-        if (!$hasNightShift && $normalSchedule && in_array($normalSchedule, $nightShiftCodes)) $hasNightShift = true;
+        if (!$hasNightShift && self::isOvernightSchedule($normalSchedule)) $hasNightShift = true;
 
         if ($hasNightShift) {
             // night pairing: find evening punches >= 14 and include punches within 12 hours
@@ -370,23 +437,42 @@ class AttendanceProcessor
     protected function insertAttendanceRecords(array $records, int $biometricImportsId): array
     {
         $stats = ['inserted' => 0, 'skipped_duplicate' => 0, 'skipped_same_time' => 0, 'skipped_no_emp' => 0];
+
+        $normalizeDate = fn (string $recordDate): string => $this->normalizeRecordDate($recordDate);
+
         DB::beginTransaction();
         try {
+            // Employees by name (first match, as the former per-row lookup) and the employee-days
+            // already stored in this file's date range, so each row needs no query of its own.
+            $employeeIds = [];
+            foreach (DB::table('employee_management')->get(['id', 'employee_name']) as $e) {
+                $employeeIds[$e->employee_name] ??= $e->id;
+            }
+            // Only well-formed dates bound the range; any other row is handled (and fails) as before.
+            $dates = array_values(array_filter(
+                array_map(fn ($row) => $normalizeDate((string) ($row['record_date'] ?? '')), $records),
+                fn ($d) => (bool) preg_match('/^\d{4}-\d{2}-\d{2}$/', $d)
+            ));
+            $stored = [];
+            if ($dates) {
+                $existing = DB::table('attendance_records')
+                    ->whereRaw('DATE(record_date) BETWEEN ? AND ?', [min($dates), max($dates)])
+                    ->selectRaw('employee_management_id, DATE(record_date) AS d')
+                    ->get();
+                foreach ($existing as $x) {
+                    $stored[$x->employee_management_id . '|' . $x->d] = true;
+                }
+            }
+
+            $pending = [];
             foreach ($records as $row) {
                 $employeeName = $row['employee_name'] ?? null;
                 if (!$employeeName) continue;
 
-                $emp = DB::selectOne("SELECT id FROM employee_management WHERE employee_name = :name LIMIT 1", ['name' => $employeeName]);
-                if (!$emp) { $stats['skipped_no_emp']++; continue; }
-                $employee_management_id = $emp->id;
+                $employee_management_id = $employeeIds[$employeeName] ?? null;
+                if (!$employee_management_id) { $stats['skipped_no_emp']++; continue; }
 
-                $recordDate = $row['record_date'];
-                if (strpos($recordDate, '/') !== false) {
-                    [$m,$d,$y] = explode('/', $recordDate);
-                    $recordDate = sprintf('%04d-%02d-%02d', $y, $m, $d);
-                } else {
-                    $recordDate = substr($recordDate,0,10);
-                }
+                $recordDate = $normalizeDate((string) $row['record_date']);
 
                 $earliest = $row['earliest_time'] ?? '00:00:00';
                 $latest   = $row['latest_time'] ?? '00:00:00';
@@ -394,26 +480,13 @@ class AttendanceProcessor
 
                 $weekday = Carbon::parse($recordDate)->format('l');
 
-                $exists = DB::selectOne("
-                    SELECT 1 FROM attendance_records
-                    WHERE employee_management_id = :eid
-                      AND record_date = :rdate
-                      AND earliest_time = :et
-                      AND latest_time = :lt
-                      AND weekday = :wd
-                      AND biometric_imports_id = :bid
-                    LIMIT 1
-                ", [
-                    'eid' => $employee_management_id,
-                    'rdate' => $recordDate,
-                    'et' => $earliest,
-                    'lt' => $latest,
-                    'wd' => $weekday,
-                    'bid'=> $biometricImportsId
-                ]);
-                if ($exists) { $stats['skipped_duplicate']++; continue; }
+                // One record per employee per day across ALL imports: uploads may overlap,
+                // and the first stored record (with any edits/leaves on it) is kept.
+                $dayKey = $employee_management_id . '|' . $recordDate;
+                if (isset($stored[$dayKey])) { $stats['skipped_duplicate']++; continue; }
+                $stored[$dayKey] = true;
 
-                $id = DB::table('attendance_records')->insertGetId([
+                $pending[] = [
                     'employee_management_id' => $employee_management_id,
                     'attendance_area' => $row['Attendance Area'] ?? null,
                     'attendance_point_name' => $row['Attendance Point Name'] ?? null,
@@ -431,12 +504,14 @@ class AttendanceProcessor
                     'late_hours' => 0,
                     'late_minutes' => 0,
                     'leaves' => false,
-                ]);
-
+                ];
                 $stats['inserted']++;
 
-                // After insert: optional hook to compute OT/ND per row
-                // We'll compute summary OT for the biometric import later (calculateHoursForBiometricImport)
+                // OT/ND for the import is computed afterwards (calculateHoursForBiometricImport)
+            }
+
+            foreach (array_chunk($pending, 500) as $chunk) {
+                DB::table('attendance_records')->insert($chunk);
             }
 
             DB::commit();
@@ -447,6 +522,51 @@ class AttendanceProcessor
         }
 
         return $stats;
+    }
+
+    /** A parsed record's date as Y-m-d ("m/d/Y" or anything starting with Y-m-d). */
+    private function normalizeRecordDate(string $recordDate): string
+    {
+        if (strpos($recordDate, '/') !== false) {
+            [$m, $d, $y] = explode('/', $recordDate);
+            return sprintf('%04d-%02d-%02d', $y, $m, $d);
+        }
+        return substr($recordDate, 0, 10);
+    }
+
+    /**
+     * Fill period_start / period_end on the batch when the admin has not set them yet: the first
+     * and last day in the uploaded file, so days skipped because an earlier import already holds
+     * them still fall inside this import's period (and stay covered if that import is deleted).
+     * Without parsed records, the batch's own attendance_records give the range.
+     */
+    protected function setDefaultPeriod(int $biometricImportsId, array $records = []): void
+    {
+        $dates = array_values(array_filter(
+            array_map(fn ($row) => $this->normalizeRecordDate((string) ($row['record_date'] ?? '')), $records),
+            fn ($d) => (bool) preg_match('/^\d{4}-\d{2}-\d{2}$/', $d)
+        ));
+
+        if ($dates) {
+            $range = (object) ['min_date' => min($dates), 'max_date' => max($dates)];
+        } else {
+            $range = DB::table('attendance_records')
+                ->where('biometric_imports_id', $biometricImportsId)
+                ->selectRaw('MIN(record_date)::date AS min_date, MAX(record_date)::date AS max_date')
+                ->first();
+        }
+
+        if (!$range || !$range->min_date) return;
+
+        DB::table('biometric_imports')
+            ->where('id', $biometricImportsId)
+            ->whereNull('period_start')
+            ->update(['period_start' => $range->min_date]);
+
+        DB::table('biometric_imports')
+            ->where('id', $biometricImportsId)
+            ->whereNull('period_end')
+            ->update(['period_end' => $range->max_date]);
     }
 
     /**
@@ -470,13 +590,34 @@ class AttendanceProcessor
 
         if (empty($rows)) return;
 
-        // Preload custom_dates (non-working days)
-        $customDates = DB::table('custom_dates')->pluck('record_date')->map(fn($d) => substr($d,0,10))->toArray();
+        // Preload non-working days, employees, the schedule adjustments in the import's date range
+        // and its existing overtime/security rows, so no row needs a query to look them up.
+        $computation  = new ComputationService();
+        $employeeData = DB::table('employee_management')->get()->toArray();
+        $employees    = collect($employeeData);
+        $days         = array_map(fn ($r) => substr($r->record_date, 0, 10), $rows);
+        $context      = $computation->buildContext($employeeData, min($days), max($days));
+        $lookups      = [
+            'employees_by_name' => $context['employees_by_name'],
+            'non_working'       => $context['non_working'],
+            'overtimes'         => DB::table('overtimes')->where('biometric_imports_id', $biometricImportsId)
+                ->orderBy('id')->get(['id', 'employee_name', 'record_date', 'type'])
+                ->reduce(function ($map, $o) {
+                    $map[$this->overtimeKey($o->employee_name, (string) $o->record_date, $o->type)] ??= $o->id;
+                    return $map;
+                }, []),
+            'security'          => DB::table('security_attendance')->where('biometric_imports_id', $biometricImportsId)
+                ->orderBy('id')->get(['id', 'employee_management_id', 'record_date', 'earliest_time', 'latest_time'])
+                ->reduce(function ($map, $x) use ($biometricImportsId) {
+                    $map[$this->securityKey($x->employee_management_id, (string) $x->record_date, $x->earliest_time, $x->latest_time, $biometricImportsId)] ??= $x->id;
+                    return $map;
+                }, []),
+        ];
 
         foreach ($rows as $r) {
             try {
                 $record_date = substr($r->record_date, 0, 10);
-                if (in_array($record_date, $customDates)) {
+                if (isset($context['non_working'][$record_date])) {
                     // Non-working: we still may log as RD if required by logic; skip hours
                     $hoursWorked = 0;
                 } else {
@@ -489,7 +630,7 @@ class AttendanceProcessor
                         else $seconds = ($latest + 24*3600) - $earliest; // next day
                         $hours = max(($seconds / 3600.0) - 1.0, 0); // subtract 1 hour break (mirrors python default)
                         // some schedules do not subtract break (like 15-23 etc); for simplicity, check schedule briefly
-                        $empSchedule = DB::table('employee_management')->where('employee_name', $r->employee_name)->value('schedule');
+                        $empSchedule = $lookups['employees_by_name'][$r->employee_name]->schedule ?? null;
                         if (in_array($empSchedule, ['15-23','23-7'])) {
                             // do not subtract 1 hr
                             $hours = $seconds / 3600.0;
@@ -500,33 +641,36 @@ class AttendanceProcessor
 
                 // Insert/update security_attendance if department is Security
                 if (strtolower(trim($r->department ?? '')) === 'security') {
-                    $this->logSecurityAttendance($r, 'hours_worked', round($hoursWorked));
+                    $this->logSecurityAttendance($r, 'hours_worked', round($hoursWorked), null, null, $lookups);
                 }
 
-                // compute OT and ND in a simplified manner:
-                // - OT = hoursWorked - 8 (if > 8) ; ND = hours between 22:00 - 06:00 (even across midnight)
-                $ord_ot = 0.0;
-                if ($hoursWorked > 8) $ord_ot = $hoursWorked - 8.0;
-
-                $nd_seconds = $this->secondsInNdWindow($r->earliest_time, $r->latest_time);
-                $nd_hours = round($nd_seconds / 3600.0, 2);
-
-                // RD detection (if record_date in custom_dates) - treat as RD
-                $isRD = in_array($record_date, $customDates);
+                // OT / ND by the overtime rules (ComputationService), the same calculation used when
+                // a time is edited or a record is approved, so the Overtime page starts out correct.
+                $rowArr = (array) $r;
+                [$ordOt, $ordNd, $ordNdOt] = $computation->autocalculateOrd(
+                    $rowArr, [], $employeeData, null, null, $r->biometric_imports_id, $context
+                );
+                $rd = $computation->autocalculateRdAndOvertime($rowArr, $employees, $context);
 
                 // Insert into overtimes table or update existing (mimics log_overtime_to_db behavior)
                 $this->logOrUpdateOvertime($r, [
-                    'ord_ot' => $ord_ot,
-                    'nd_hours' => $nd_hours,
-                    'rd' => $isRD ? ($hoursWorked) : 0,
+                    'ord_ot' => $ordOt,
+                    'ord_nd' => $ordNd,
+                    'ord_nd_ot' => $ordNdOt,
+                    'rd' => $rd['rd'],
+                    'rd_ot' => $rd['rd_ot'],
+                    'rd_nd' => $rd['rd_nd'],
+                    'rd_nd_ot' => $rd['rd_nd_ot'],
                     'biometric_imports_id' => $r->biometric_imports_id,
                     'attendance_records_id' => $r->id
-                ]);
+                ], $lookups);
 
             } catch (\Throwable $e) {
                 Log::error("calculateHoursForBiometricImport row failed: ".$e->getMessage());
             }
         }
+
+        $this->flushOvertimes($lookups);
     }
 
     /**
@@ -544,42 +688,11 @@ class AttendanceProcessor
         return $h*3600 + $m*60 + (int)$s;
     }
 
-    /**
-     * Calculate seconds between earliest and latest that fall into ND window (22:00-06:00)
-     * Handles crossing midnight.
-     */
-    protected function secondsInNdWindow($earliestStr, $latestStr): int
-    {
-        $ear = $this->toSeconds($earliestStr); if ($ear === null) return 0;
-        $lat = $this->toSeconds($latestStr); if ($lat === null) return 0;
-        // create timeline from earliest to latest in seconds, allowing crossing midnight
-        $segments = [];
-        if ($lat >= $ear) {
-            $segments[] = [$ear, $lat];
-        } else {
-            // crosses midnight
-            $segments[] = [$ear, 24*3600];
-            $segments[] = [0, $lat];
-        }
-
-        $ndStart = 22*3600;
-        $ndEnd = 6*3600;
-
-        $ndSeconds = 0;
-        foreach ($segments as [$s,$e]) {
-            // two ND windows possibly: [22:00..24:00] and [00:00..06:00]
-            // overlap with [22:00..24:00]
-            $overlap1 = max(0, min($e, 24*3600) - max($s, $ndStart));
-            $overlap2 = max(0, min($e, $ndEnd) - max($s, 0)); // for 0..6
-            $ndSeconds += $overlap1 + $overlap2;
-        }
-        return (int)$ndSeconds;
-    }
 
     /**
      * Insert or update overtimes (mimics Python log_overtime_to_db)
      */
-    protected function logOrUpdateOvertime($attendanceRow, array $computed)
+    protected function logOrUpdateOvertime($attendanceRow, array $computed, ?array &$lookups = null)
     {
         $employeeName = $attendanceRow->employee_name ?? null;
         $recordDate = substr($attendanceRow->record_date,0,10);
@@ -588,15 +701,19 @@ class AttendanceProcessor
         $attendance_records_id  = $computed['attendance_records_id'] ?? $attendanceRow->id;
 
         // check duplicate by employee_name, record_date, type, biometric_imports_id
-        $exists = DB::selectOne("
-            SELECT id, rd, rd_ot, rd_nd, rd_nd_ot FROM overtimes
-            WHERE employee_name = :ename AND record_date = :rdate AND type = :type AND biometric_imports_id = :bid
-            LIMIT 1
-        ", ['ename' => $employeeName, 'rdate' => $recordDate, 'type' => $type, 'bid' => $biometric_imports_id]);
+        // ($lookups holds this import's overtimes, preloaded by calculateHoursForBiometricImport)
+        $overtimeKey = $this->overtimeKey($employeeName, $recordDate, $type);
+        if ($lookups !== null) {
+            $exists = isset($lookups['overtimes'][$overtimeKey]) ? (object) ['id' => $lookups['overtimes'][$overtimeKey]] : null;
+        } else {
+            $exists = DB::selectOne("
+                SELECT id, rd, rd_ot, rd_nd, rd_nd_ot FROM overtimes
+                WHERE employee_name = :ename AND record_date = :rdate AND type = :type AND biometric_imports_id = :bid
+                LIMIT 1
+            ", ['ename' => $employeeName, 'rdate' => $recordDate, 'type' => $type, 'bid' => $biometric_imports_id]);
+        }
 
-        $ord_ot = $computed['ord_ot'] ?? 0;
-        $rd = $computed['rd'] ?? 0;
-        $nd_hours = $computed['nd_hours'] ?? 0;
+        $hm = fn($key) => $this->formatHoursForDb($computed[$key] ?? 0);
 
         if ($exists) {
             // If type ord and duplicate — skip (python: returns existing id). For RD we may update fields
@@ -606,9 +723,10 @@ class AttendanceProcessor
             } else {
                 // update a few fields if changed (simplified)
                 DB::table('overtimes')->where('id', $exists->id)->update([
-                    'rd' => $rd,
-                    'rd_ot' => $ord_ot,
-                    'rd_nd' => $nd_hours,
+                    'rd' => $hm('rd'),
+                    'rd_ot' => $hm('rd_ot'),
+                    'rd_nd' => $hm('rd_nd'),
+                    'rd_nd_ot' => $hm('rd_nd_ot'),
                     'updated_at' => now()
                 ]);
                 return $exists->id;
@@ -616,8 +734,17 @@ class AttendanceProcessor
         }
 
         // insert new overtime record
-        $emp = DB::table('employee_management')->where('employee_name', $employeeName)->first();
-        $id = DB::table('overtimes')->insertGetId([
+        if ($lookups !== null) {
+            $emp = $lookups['employees_by_name'][$employeeName] ?? null;
+            $isNonWorking = isset($lookups['non_working'][$recordDate]);
+        } else {
+            $emp = DB::table('employee_management')->where('employee_name', $employeeName)->first();
+            $isNonWorking = DB::table('custom_dates')->whereRaw('DATE(record_date) = ?', [$recordDate])->exists();
+        }
+        $lateMinutes = ($isNonWorking || !empty($attendanceRow->leaves)) ? 0 : (new ComputationService())->lateAndUndertime(
+            $emp->schedule ?? null, $attendanceRow->earliest_time, $attendanceRow->latest_time, $attendanceRow->department ?? ($emp->department ?? null)
+        )['late_minutes'];
+        $newRow = [
             'unique_id' => $attendanceRow->unique_id ?? 'TMNG-000000-000',
             'first_name' => explode(',', $employeeName)[1] ?? '',
             'last_name' => explode(',', $employeeName)[0] ?? '',
@@ -631,26 +758,77 @@ class AttendanceProcessor
             'serial_number' => $attendanceRow->serial_number ?? null,
             'schedule' => $emp->schedule ?? null,
             'schedule_shift' => $emp->schedule_shift ?? null,
-            'ord_ot' => $this->formatHoursForDb($ord_ot),
-            'ord_nd' => '00:00',
-            'ord_nd_ot' => '00:00',
-            'rd' => $this->formatHoursForDb($rd),
-            'rd_ot' => '00:00',
-            'rd_nd' => $this->formatHoursForDb($nd_hours),
-            'rd_nd_ot' => '00:00',
+            'ord_ot' => $hm('ord_ot'),
+            'ord_nd' => $hm('ord_nd'),
+            'ord_nd_ot' => $hm('ord_nd_ot'),
+            'rd' => $hm('rd'),
+            'rd_ot' => $hm('rd_ot'),
+            'rd_nd' => $hm('rd_nd'),
+            'rd_nd_ot' => $hm('rd_nd_ot'),
             'total_non_working_days_present' => 0,
-            'late' => $attendanceRow->late ?? false,
-            'late_hours' => $attendanceRow->late_hours ?? 0,
-            'late_minutes' => $attendanceRow->late_minutes ?? 0,
+            'late' => $lateMinutes > 0,
+            'late_hours' => intdiv($lateMinutes, 60),
+            'late_minutes' => $lateMinutes % 60,
             'out_time_required' => null,
             'status' => 'Pending',
             'biometric_imports_id' => $biometric_imports_id,
             'attendance_records_id' => $attendance_records_id,
+            'employee_management_id' => $attendanceRow->employee_management_id ?? ($emp->id ?? null),
             'created_at' => now(),
             'updated_at' => now()
-        ]);
+        ];
 
-        return $id;
+        // When preloaded, rows are queued and inserted in chunks by flushOvertimes();
+        // the key is marked now so a later duplicate in the same import is still skipped.
+        if ($lookups !== null) {
+            $lookups['pending_overtimes'][] = $newRow;
+            $lookups['overtimes'][$overtimeKey] = 0;
+            return null;
+        }
+
+        return DB::table('overtimes')->insertGetId($newRow);
+    }
+
+    /** Insert the overtime rows queued by logOrUpdateOvertime(), in chunks. */
+    private function flushOvertimes(array &$lookups): void
+    {
+        foreach (array_chunk($lookups['pending_overtimes'] ?? [], 500) as $chunk) {
+            try {
+                DB::transaction(fn () => DB::table('overtimes')->insert($chunk));
+            } catch (\Throwable $e) {
+                // As before batching: a row that fails is logged and the others are still saved.
+                foreach ($chunk as $row) {
+                    try {
+                        DB::transaction(fn () => DB::table('overtimes')->insert($row));
+                    } catch (\Throwable $rowError) {
+                        Log::error("calculateHoursForBiometricImport row failed: ".$rowError->getMessage());
+                    }
+                }
+            }
+        }
+        $lookups['pending_overtimes'] = [];
+    }
+
+    /** Key of an overtime row as matched by logOrUpdateOvertime() (record_date at midnight). */
+    private function overtimeKey(?string $employeeName, string $recordDate, ?string $type): string
+    {
+        return $employeeName . '|' . Carbon::parse($recordDate)->format('Y-m-d H:i:s') . '|' . $type;
+    }
+
+    /** Key of a security_attendance row as matched by logSecurityAttendance(). */
+    private function securityKey($employeeId, string $recordDate, $earliest, $latest, $biometricImportsId): string
+    {
+        return implode('|', [$employeeId, Carbon::parse($recordDate)->format('Y-m-d H:i:s'), $earliest, $latest, $biometricImportsId]);
+    }
+
+    /** "HH:MM" (as stored on overtime records) to decimal hours. */
+    protected function hmToHours($hm): float
+    {
+        if (!is_string($hm) || !preg_match('/^(\d+):(\d{2})/', trim($hm), $m)) {
+            return is_numeric($hm) ? (float) $hm : 0.0;
+        }
+
+        return (int) $m[1] + (int) $m[2] / 60;
     }
 
     protected function formatHoursForDb($hoursFloat)
@@ -662,23 +840,31 @@ class AttendanceProcessor
     /**
      * Logs or updates security_attendance (mimics python log_security_db)
      */
-    protected function logSecurityAttendance($attendanceRow, $type, $hours, $biometric_imports_id = null, $attendance_records_id = null)
+    protected function logSecurityAttendance($attendanceRow, $type, $hours, $biometric_imports_id = null, $attendance_records_id = null, ?array &$lookups = null)
     {
         // get employee management id
-        $empId = DB::table('employee_management')->where('employee_name', $attendanceRow->employee_name)->value('id');
+        $empId = $lookups !== null
+            ? ($lookups['employees_by_name'][$attendanceRow->employee_name]->id ?? null)
+            : DB::table('employee_management')->where('employee_name', $attendanceRow->employee_name)->value('id');
         if (!$empId) return;
 
         $record_date = substr($attendanceRow->record_date,0,10);
         $earliest = $attendanceRow->earliest_time;
         $latest = $attendanceRow->latest_time;
+        $importId = $biometric_imports_id ?? $attendanceRow->biometric_imports_id;
+        $securityKey = $this->securityKey($empId, $record_date, $earliest, $latest, $importId);
 
-        $existing = DB::table('security_attendance')->where([
-            ['employee_management_id', $empId],
-            ['record_date', $record_date],
-            ['earliest_time', $earliest],
-            ['latest_time', $latest],
-            ['biometric_imports_id', $biometric_imports_id ?? $attendanceRow->biometric_imports_id],
-        ])->first();
+        if ($lookups !== null) {
+            $existing = isset($lookups['security'][$securityKey]) ? (object) ['id' => $lookups['security'][$securityKey]] : null;
+        } else {
+            $existing = DB::table('security_attendance')->where([
+                ['employee_management_id', $empId],
+                ['record_date', $record_date],
+                ['earliest_time', $earliest],
+                ['latest_time', $latest],
+                ['biometric_imports_id', $importId],
+            ])->first();
+        }
 
         if ($existing) {
             if ($type === 'hours_worked') {
@@ -696,34 +882,54 @@ class AttendanceProcessor
                 'earliest_time' => $earliest,
                 'latest_time' => $latest,
                 'biometric_imports_id' => $biometric_imports_id ?? $attendanceRow->biometric_imports_id,
-                'attendance_records_id' => $attendance_records_id ?? $attendanceRow->id,
                 'created_at' => now(),
                 'updated_at' => now()
             ];
             if ($type === 'hours_worked') $data['hours_worked'] = $hours;
             if ($type === 'OT') $data['ot'] = $hours;
             if ($type === 'ND') $data['nd'] = $hours;
-            DB::table('security_attendance')->insert($data);
+            $id = DB::table('security_attendance')->insertGetId($data);
+            if ($lookups !== null) {
+                $lookups['security'][$securityKey] = $id;
+            }
         }
     }
 
+    /** DTR colors (HR Daily Attendance template). */
+    protected const DTR_FILL_REG = 'FFF2CC';
+    protected const DTR_FILL_OT  = 'DDEBF7';
+    protected const DTR_HEADER   = '002060';
+
+    /** Hour buckets computed per attendance record (payroll columns and DTR rows). */
+    protected const BUCKETS = [
+        'hours_worked',
+        'ord_ot', 'ord_nd', 'ord_nd_ot',
+        'rd', 'rd_ot', 'rd_nd', 'rd_nd_ot',
+        'lh', 'lh_ot', 'lh_nd', 'lh_nd_ot',
+        'sh', 'sh_ot', 'sh_nd', 'sh_nd_ot',
+    ];
+
+    /** Regular hours per working day; anything beyond is OT and needs approval. */
+    private const REGULAR_DAY_SECONDS = 8 * 3600;
+
     /**
-     * Generate the payroll CSV (public/python/payroll file.csv) from all attendance_records
-     * for a given biometric import. Computes ORD, RD, ND, LH, SH hours per employee.
+     * Compute every attendance_record dated within the payroll period ($start..$end), from
+     * any biometric import, into per-employee, per-date hour buckets. Shared by the payroll
+     * file and the DTR so both always show the same numbers. Imports never store the same
+     * employee/date twice (see insertAttendanceRecords), so no row is counted twice.
+     *
+     * Hours Worked holds regular hours only (8 max, less late and undertime). OT, rest-day and
+     * holiday hours come from approved overtime records only.
      */
-    public function generatePayrollReport(int $biometricImportsId): array
+    protected function buildDailyBreakdown(string $start, string $end): array
     {
         $rows = DB::select("
             SELECT ar.*, em.employee_name, em.department, em.unique_id, em.basic_salary, em.schedule
             FROM attendance_records ar
             INNER JOIN employee_management em ON em.id = ar.employee_management_id
-            WHERE ar.biometric_imports_id = :bid
+            WHERE DATE(ar.record_date) BETWEEN :start AND :end
             ORDER BY em.employee_name, ar.record_date
-        ", ['bid' => $biometricImportsId]);
-
-        if (empty($rows)) {
-            return ['error' => 'No attendance records found for this biometric import'];
-        }
+        ", ['start' => $start, 'end' => $end]);
 
         $nonWorkingDays = DB::table('custom_dates')
             ->pluck('record_date')
@@ -734,78 +940,207 @@ class AttendanceProcessor
             ->get()
             ->keyBy(fn($r) => substr($r->record_date, 0, 10));
 
-        $employeeData    = DB::table('employee_management')->get()->toArray();
-        $computation     = new ComputationService();
-        $summaries       = [];
+        $employeeData = DB::table('employee_management')->get()->toArray();
+        $computation  = new ComputationService();
+        $context      = $computation->buildContext($employeeData, $start, $end);
+        $employees    = [];
+
+        // Schedule adjustments in the period, by employee and day (same source the OT calculation uses)
+        $adjustedSchedules = DB::table('schedule_adjustments')
+            ->whereRaw('DATE(record_date) BETWEEN ? AND ?', [$start, $end])
+            ->orderBy('id')
+            ->get(['employee_management_id', 'record_date', 'schedule'])
+            ->mapWithKeys(fn($a) => [$a->employee_management_id . '|' . substr($a->record_date, 0, 10) => $a->schedule]);
+
+        // OT, rest-day and holiday hours only count once approved: use the approved overtime
+        // records' figures (as approved, including any time edits), keyed by attendance record.
+        $approvedOt = DB::table('overtimes')
+            ->where('status', 'Approved')
+            ->whereRaw('DATE(record_date) BETWEEN ? AND ?', [$start, $end])
+            ->orderBy('id')
+            ->get(['attendance_records_id', 'employee_management_id', 'record_date',
+                'ord_ot', 'ord_nd_ot', 'rd', 'rd_ot', 'rd_nd', 'rd_nd_ot']);
+        $approvedByRecord = $approvedOt->whereNotNull('attendance_records_id')->keyBy('attendance_records_id');
+        $approvedByEmpDay = $approvedOt->keyBy(fn($o) => $o->employee_management_id . '|' . substr($o->record_date, 0, 10));
+        $hours = fn($hm) => $this->hmToHours($hm);
 
         foreach ($rows as $r) {
             $empName    = $r->employee_name;
             $recordDate = substr($r->record_date, 0, 10);
 
-            if (!isset($summaries[$empName])) {
-                $summaries[$empName] = [
+            if (!isset($employees[$empName])) {
+                $employees[$empName] = [
                     'id' => $r->unique_id, 'name' => $empName, 'basic' => $r->basic_salary ?? 0,
-                    'hours_worked' => 0, 'total_regular_days' => 0, 'total_non_working_days' => 0,
-                    'ord_ot' => 0, 'ord_nd' => 0, 'ord_nd_ot' => 0,
-                    'rd' => 0, 'rd_ot' => 0, 'rd_nd' => 0, 'rd_nd_ot' => 0,
-                    'lh' => 0, 'lh_ot' => 0, 'lh_nd' => 0, 'lh_nd_ot' => 0,
-                    'sh' => 0, 'sh_ot' => 0, 'sh_nd' => 0, 'sh_nd_ot' => 0,
+                    'days' => [],
                 ];
             }
+
+            if (!isset($employees[$empName]['days'][$recordDate])) {
+                $employees[$empName]['days'][$recordDate] = array_fill_keys(self::BUCKETS, 0)
+                    + ['regular_days' => 0, 'non_working_days' => 0];
+            }
+            $day = &$employees[$empName]['days'][$recordDate];
 
             $holiday      = $holidayMap[$recordDate] ?? null;
             $isNonWorking = in_array($recordDate, $nonWorkingDays);
             $holidayType  = $holiday->holiday_type ?? null;
 
             if ($isNonWorking) {
-                $summaries[$empName]['total_non_working_days']++;
+                $day['non_working_days']++;
             } else {
-                $summaries[$empName]['total_regular_days']++;
+                $day['regular_days']++;
             }
 
-            // Hours worked (subtract 1-hour break for non-security schedules)
+            $schedule = $adjustedSchedules[$r->employee_management_id . '|' . $recordDate] ?? $r->schedule;
+            $onLeave  = !empty($r->leaves);
+            $approved = $approvedByRecord[$r->id] ?? $approvedByEmpDay[$r->employee_management_id . '|' . $recordDate] ?? null;
+
+            // Hours Worked = regular hours only, on working days: 8 (or the shift less its break,
+            // if shorter) minus late (beyond grace, in full) and undertime (every minute).
+            // Arriving early or staying late adds nothing here; that is OT, counted once approved.
             $ear = $this->toSeconds($r->earliest_time);
             $lat = $this->toSeconds($r->latest_time);
-            if ($ear !== null && $lat !== null && $ear !== $lat) {
-                $secs = $lat >= $ear ? $lat - $ear : ($lat + 86400) - $ear;
+            if (!$isNonWorking && !$onLeave && $ear !== null && $lat !== null && $ear !== $lat) {
+                $lu = $computation->lateAndUndertime($schedule, $r->earliest_time, $r->latest_time, $r->department ?? null);
+
                 $noBreakSchedules = ['15-23', '23-7'];
-                $break = in_array($r->schedule ?? '', $noBreakSchedules) ? 0 : 3600;
-                $summaries[$empName]['hours_worked'] += max(($secs - $break) / 3600, 0);
+                $break = in_array($lu['schedule'] ?? $schedule ?? '', $noBreakSchedules) ? 0 : 3600;
+
+                if ($lu['shift_minutes'] !== null) {
+                    $regular = min($lu['shift_minutes'] * 60 - $break, self::REGULAR_DAY_SECONDS)
+                        - ($lu['late_minutes'] + $lu['undertime_minutes']) * 60;
+                } else {
+                    // No usable schedule: actual time less break, still capped at a regular day
+                    $span    = $lat >= $ear ? $lat - $ear : ($lat + 86400) - $ear;
+                    $regular = min($span - $break, self::REGULAR_DAY_SECONDS);
+                }
+                $day['hours_worked'] += max($regular, 0) / 3600;
             }
 
-            $rowArr = (array)$r;
-
             if (!$isNonWorking) {
-                [$ordOt, $ordNd, $ordNdOt] = $computation->autocalculateOrd(
-                    $rowArr, $nonWorkingDays, $employeeData, null, null, $biometricImportsId
-                );
-                $summaries[$empName]['ord_ot']    += $ordOt;
-                $summaries[$empName]['ord_nd']    += $ordNd;
-                $summaries[$empName]['ord_nd_ot'] += $ordNdOt;
-            } else {
-                $rd = $computation->autocalculateRdAndOvertime($rowArr, collect($employeeData));
-
+                // ND on regular hours is a premium on the regular day, not OT: always shown
+                if (!$onLeave) {
+                    [, $ordNd] = $computation->autocalculateOrd(
+                        (array) $r, $nonWorkingDays, $employeeData, null, null, $r->biometric_imports_id, $context
+                    );
+                    $day['ord_nd'] += $ordNd;
+                }
+                if ($approved) {
+                    $day['ord_ot']    += $hours($approved->ord_ot);
+                    $day['ord_nd_ot'] += $hours($approved->ord_nd_ot);
+                }
+            } elseif ($approved) {
                 if (in_array($holidayType, ['Regular Holiday', 'Legal Holiday'])) {
-                    $summaries[$empName]['lh']    += $rd['rd'];
-                    $summaries[$empName]['lh_ot'] += $rd['rd_ot'];
-                    $summaries[$empName]['lh_nd'] += $rd['rd_nd'];
-                    $summaries[$empName]['lh_nd_ot'] += $rd['rd_nd_ot'];
+                    $prefix = 'lh';
                 } elseif ($holidayType === 'Special Non-Working Holiday') {
-                    $summaries[$empName]['sh']    += $rd['rd'];
-                    $summaries[$empName]['sh_ot'] += $rd['rd_ot'];
-                    $summaries[$empName]['sh_nd'] += $rd['rd_nd'];
-                    $summaries[$empName]['sh_nd_ot'] += $rd['rd_nd_ot'];
+                    $prefix = 'sh';
                 } else {
-                    $summaries[$empName]['rd']    += $rd['rd'];
-                    $summaries[$empName]['rd_ot'] += $rd['rd_ot'];
-                    $summaries[$empName]['rd_nd'] += $rd['rd_nd'];
-                    $summaries[$empName]['rd_nd_ot'] += $rd['rd_nd_ot'];
+                    $prefix = 'rd';
+                }
+
+                $day[$prefix]            += $hours($approved->rd);
+                $day["{$prefix}_ot"]     += $hours($approved->rd_ot);
+                $day["{$prefix}_nd"]     += $hours($approved->rd_nd);
+                $day["{$prefix}_nd_ot"]  += $hours($approved->rd_nd_ot);
+            }
+            unset($day);
+        }
+
+        // Whole minutes per day, so the payroll file, DTR and security report all add up the same
+        // values (a computed ND can come out as a fraction of a minute).
+        foreach ($employees as &$emp) {
+            foreach ($emp['days'] as &$day) {
+                foreach (self::BUCKETS as $bucket) {
+                    $day[$bucket] = round($day[$bucket] * 60) / 60;
+                }
+            }
+            unset($day);
+        }
+        unset($emp);
+
+        $recordedDates = array_unique(array_map(fn($r) => substr($r->record_date, 0, 10), $rows));
+        $missingDates  = [];
+        foreach (\Carbon\CarbonPeriod::create($start, $end) as $d) {
+            if (!in_array($d->toDateString(), $recordedDates)) {
+                $missingDates[] = $d->toDateString();
+            }
+        }
+
+        $importIds = array_values(array_unique(array_map(fn($r) => $r->biometric_imports_id, $rows)));
+
+        return [
+            'start'         => $start,
+            'end'           => $end,
+            'employees'     => $employees,
+            'missing_dates' => $missingDates,
+            'imports'       => DB::table('biometric_imports')->whereIn('id', $importIds)
+                ->orderBy('id')->get(['id', 'title'])->toArray(),
+        ];
+    }
+
+    /**
+     * Where generated reports are written: storage/app/reports, outside the web root, so they are
+     * only reachable through the logged-in download routes (they hold names and pay).
+     */
+    public static function reportPath(string $name): string
+    {
+        $dir = storage_path('app/reports');
+        if (!is_dir($dir)) {
+            mkdir($dir, 0775, true);
+        }
+
+        return $dir.'/'.$name;
+    }
+
+    /**
+     * The report files in public/python are also tracked in git, so a checkout leaves them owned by the
+     * host user and read-only for the web server. The directory itself is writable, so remove such a
+     * file and let the writer create a fresh one instead of failing with "Permission denied".
+     */
+    private function replaceUnwritableOutput(string $path): void
+    {
+        if (is_file($path) && !is_writable($path)) {
+            @unlink($path);
+        }
+    }
+
+    /**
+     * Generate the payroll CSV (reports/payroll file.csv) and the DTR
+     * (reports/reportdtr.xlsx) for the payroll period $start..$end, from the same
+     * daily breakdown. Records from every biometric import dated in the period are included.
+     */
+    public function generatePayrollReport(string $start, string $end): array
+    {
+        // Never leave a DTR from an earlier run downloadable if this run fails.
+        $dtrPath = self::reportPath('reportdtr.xlsx');
+        if (file_exists($dtrPath)) {
+            @unlink($dtrPath);
+        }
+
+        $breakdown = $this->buildDailyBreakdown($start, $end);
+
+        if (empty($breakdown['employees'])) {
+            return ['error' => "No attendance records found between {$start} and {$end}"];
+        }
+
+        $summaries = [];
+        foreach ($breakdown['employees'] as $empName => $emp) {
+            $summaries[$empName] = [
+                'id' => $emp['id'], 'name' => $emp['name'], 'basic' => $emp['basic'],
+                'total_regular_days' => 0, 'total_non_working_days' => 0,
+            ] + array_fill_keys(self::BUCKETS, 0);
+
+            foreach ($emp['days'] as $day) {
+                $summaries[$empName]['total_regular_days']     += $day['regular_days'];
+                $summaries[$empName]['total_non_working_days'] += $day['non_working_days'];
+                foreach (self::BUCKETS as $bucket) {
+                    $summaries[$empName][$bucket] += $day[$bucket];
                 }
             }
         }
 
         // Write payroll CSV
-        $outputPath = public_path('python/payroll file.csv');
+        $outputPath = self::reportPath('payroll file.csv');
         $dir = dirname($outputPath);
         if (!is_dir($dir)) {
             mkdir($dir, 0755, true);
@@ -859,7 +1194,11 @@ class AttendanceProcessor
             ];
         }
 
+        $this->replaceUnwritableOutput($outputPath);
         $fp = fopen($outputPath, 'w');
+        if ($fp === false) {
+            throw new \RuntimeException("Cannot write {$outputPath}; check that the web server user can write to public/python.");
+        }
         fputcsv($fp, $header);
         foreach ($csvRows as $row) {
             fputcsv($fp, $row);
@@ -868,108 +1207,195 @@ class AttendanceProcessor
 
         // Keep the downloadable "payroll file.xlsx" (served by download.payrollfile)
         // in sync with the CSV — it used to be a static leftover that never got regenerated.
-        $xlsxPath = public_path('python/payroll file.xlsx');
+        $xlsxPath = self::reportPath('payroll file.xlsx');
         $spreadsheet = new Spreadsheet();
         $sheet = $spreadsheet->getActiveSheet();
         $sheet->fromArray($header, null, 'A1');
         $sheet->fromArray($csvRows, null, 'A2');
+        $this->replaceUnwritableOutput($xlsxPath);
         (new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet))->save($xlsxPath);
 
         Log::info("generatePayrollReport: wrote {$outputPath} and {$xlsxPath}", ['employees' => count($summaries)]);
 
-        return ['stats' => ['employees' => count($summaries), 'output' => $outputPath]];
+        $this->generateDtrReport($breakdown, $dtrPath);
+
+        $securityPath   = self::reportPath('security.xlsx');
+        $securityGuards = app(SecurityReportService::class)
+            ->generate($breakdown['start'], $breakdown['end'], $securityPath);
+
+        return [
+            'stats' => [
+                'employees'      => count($summaries),
+                'output'         => $outputPath,
+                'dtr'            => $dtrPath,
+                'security_guards' => $securityGuards,
+                'period'         => ['start' => $breakdown['start'], 'end' => $breakdown['end']],
+                'missing_dates'  => $breakdown['missing_dates'],
+                'imports'        => $breakdown['imports'],
+            ],
+        ];
     }
 
     /**
-     * Process attendance_certificates.json: insert or remove attendance_records
-     * for each certificate entry (action = 'add' | 'remove').
+     * Write the DTR (reportdtr.xlsx) in the layout of the old Python report_manual():
+     * one block of row types per employee, one column per day of the payroll period.
      */
-    public function finalizeCertificates(string $certificatesPath, string $overtimeLogsPath, string $outputDir): array
+    protected function generateDtrReport(array $breakdown, string $path): void
     {
-        if (!file_exists($certificatesPath)) {
-            return ['error' => 'attendance_certificates.json not found'];
-        }
+        // Row type => bucket. Combined holiday rows have no bucket (payroll writes 00:00 for them too).
+        $rowTypes = [
+            'Hours Worked' => 'hours_worked',
+            'OT (Ordinary day)' => 'ord_ot',
+            'SUNDAY Reg 8 hrs' => 'rd',
+            'SPECIAL HOL. Reg 8 hrs' => 'sh',
+            'SPECIAL HOL. + SUNDAY Reg 8 hrs' => null,
+            'LEG. HOLIDAY Reg 8 hrs' => 'lh',
+            'LEG. HOLIDAY + SUNDAY Reg 8 hrs' => null,
+            'LEG. HOLIDAY + LEG. HOLIDAY Reg 8 hrs' => null,
+            'LEG. HOLIDAY + LEG. HOLIDAY + SUNDAY Reg 8 hrs' => null,
+            'ND Reg 8 hrs' => 'ord_nd',
+            'SUNDAY ND Reg 8 hrs' => 'rd_nd',
+            'SPECIAL HOL. ND Reg 8 hrs' => 'sh_nd',
+            'SPECIAL HOL. + SUNDAY ND Reg 8 hrs' => null,
+            'LEG. HOLIDAY ND Reg 8 hrs' => 'lh_nd',
+            'LEG. HOLIDAY + SUNDAY ND Reg 8 hrs' => null,
+            'LEG. HOLIDAY + LEG. HOLIDAY ND Reg 8 hrs' => null,
+            'LEG. HOLIDAY + LEG. HOLIDAY + SUNDAY ND Reg 8 hrs' => null,
+            'EX SUNDAY OT' => 'rd_ot',
+            'EX SPECIAL HOL. OT' => 'sh_ot',
+            'EX SPECIAL HOL. + SUNDAY OT' => null,
+            'EX LEG. HOLIDAY OT' => 'lh_ot',
+            'EX. LEG. HOLIDAY + SUNDAY OT' => null,
+            'EX. LEG. HOLIDAY + LEG. HOLIDAY OT' => null,
+            'EX. LEG. HOLIDAY + LEG. HOLIDAY + SUNDAY OT' => null,
+            'EX. NDOT' => 'ord_nd_ot',
+            'EX. SUNDAY NDOT' => 'rd_nd_ot',
+            'EX. SPECIAL HOL. NDOT' => 'sh_nd_ot',
+            'EX. SPECIAL HOL. + SUNDAY NDOT' => null,
+            'EX. LEG. HOLIDAY NDOT' => 'lh_nd_ot',
+            'EX. LEG. HOLIDAY + SUNDAY NDOT' => null,
+            'EX. LEG. HOLIDAY + LEG. HOLIDAY NDOT' => null,
+            'EX. LEG. HOLIDAY + LEG. HOLIDAY + SUNDAY NDOT' => null,
+        ];
 
-        $certificates = json_decode(file_get_contents($certificatesPath), true);
-        if (!is_array($certificates)) {
-            return ['error' => 'attendance_certificates.json is invalid or empty'];
-        }
+        // Type cell colors of the HR Daily Attendance template: OT rows light blue, regular-hour
+        // rows cream; Sunday rows (and Hours Worked) in red font.
+        $typeFill    = fn(string $type) => str_starts_with($type, 'EX') || $type === 'OT (Ordinary day)'
+            ? self::DTR_FILL_OT
+            : self::DTR_FILL_REG;
+        $typeFontRed = fn(string $type) => $type === 'Hours Worked' || str_contains($type, 'SUNDAY');
 
-        $biometricImportId = DB::table('biometric_imports')
-            ->where('status', 'load')
-            ->value('id');
-
-        $stats = ['processed' => 0, 'skipped' => 0, 'errors' => 0];
-
-        foreach ($certificates as $cert) {
-            try {
-                $action        = $cert['action'] ?? 'add';
-                $lastName      = strtoupper(trim($cert['Last Name'] ?? ''));
-                $firstName     = strtoupper(trim($cert['First Name'] ?? ''));
-                $employeeName  = "$lastName, $firstName";
-                $recordDate    = $cert['record_date'] ?? null;
-
-                if (!$recordDate || !$lastName || !$firstName) {
-                    $stats['skipped']++;
-                    continue;
-                }
-
-                $emp = DB::table('employee_management')
-                    ->where('employee_name', $employeeName)
-                    ->first();
-
-                if (!$emp) {
-                    Log::warning("finalizeCertificates: employee not found [{$employeeName}]");
-                    $stats['skipped']++;
-                    continue;
-                }
-
-                if ($action === 'add') {
-                    $exists = DB::table('attendance_records')
-                        ->where('employee_management_id', $emp->id)
-                        ->where('record_date', $recordDate)
-                        ->exists();
-
-                    if (!$exists) {
-                        DB::table('attendance_records')->insert([
-                            'employee_management_id' => $emp->id,
-                            'record_date'            => $recordDate,
-                            'earliest_time'          => $cert['Earliest Time'] ?? null,
-                            'latest_time'            => $cert['Latest Time']   ?? null,
-                            'weekday'                => Carbon::parse($recordDate)->format('l'),
-                            'biometric_imports_id'   => $biometricImportId,
-                            'late'                   => $cert['late']         ?? false,
-                            'late_hours'             => $cert['late_hours']   ?? 0,
-                            'late_minutes'           => $cert['late_minutes'] ?? 0,
-                            'leaves'                 => false,
-                            'created_at'             => now(),
-                            'updated_at'             => now(),
-                        ]);
-                    }
-
-                } elseif ($action === 'remove') {
-                    DB::table('attendance_records')
-                        ->where('employee_management_id', $emp->id)
-                        ->where('record_date', $recordDate)
-                        ->delete();
-
-                    DB::table('overtimes')
-                        ->where('employee_name', $employeeName)
-                        ->where('record_date', $recordDate)
-                        ->where('biometric_imports_id', $biometricImportId)
-                        ->delete();
-                }
-
-                $stats['processed']++;
-
-            } catch (\Throwable $e) {
-                Log::error("finalizeCertificates row error: " . $e->getMessage());
-                $stats['errors']++;
+        $dates = [];
+        if ($breakdown['start'] && $breakdown['end']) {
+            foreach (\Carbon\CarbonPeriod::create($breakdown['start'], $breakdown['end']) as $d) {
+                $dates[] = $d;
             }
         }
 
-        Log::info('finalizeCertificates complete', $stats);
-        return ['stats' => $stats];
+        $col       = fn(int $i) => \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($i);
+        $firstDay  = 4;                                // column D
+        $lastDay   = $firstDay + count($dates) - 1;
+        $notesCol  = $lastDay + 1;
+        $totalCol  = $lastDay + 2;
+        $sproutCol = $lastDay + 3;
+        $dayRange  = fn(int $row) => $col($firstDay) . $row . ':' . $col($lastDay) . $row;
+
+        $spreadsheet = new Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->setTitle('Manual Report');
+
+        $sheet->setCellValue('A1', "DTR — Payroll period {$breakdown['start']} to {$breakdown['end']}");
+        $sheet->setCellValue($col($notesCol) . '1', 'ADJUSTMENTS');
+        $sheet->setCellValue($col($totalCol) . '1', 'TOTAL');
+        $sheet->setCellValue($col($sproutCol) . '1', 'Sprout');
+
+        $sheet->setCellValue('A2', 'ID');
+        $sheet->setCellValue('B2', 'NAME');
+        $sheet->setCellValue('C2', 'Type');
+        foreach ($dates as $i => $d) {
+            // Explicit strings keep the leading zero on day numbers ("01").
+            $sheet->setCellValueExplicit($col($firstDay + $i) . '2', $d->format('d'), \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
+            $sheet->setCellValue($col($firstDay + $i) . '3', $d->format('D'));
+        }
+        $sheet->setCellValue($col($notesCol) . '2', 'Indicate as Notes/Comments the Date');
+        $sheet->setCellValue($col($totalCol) . '2', 'HRS');
+        $sheet->setCellValue($col($sproutCol) . '2', 'HRS');
+        $sheet->getStyle('A1:' . $col($sproutCol) . '3')->applyFromArray([
+            'fill'      => ['fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID, 'startColor' => ['rgb' => self::DTR_HEADER]],
+            'font'      => ['bold' => true, 'color' => ['rgb' => 'FFFFFF']],
+            'alignment' => [
+                'horizontal' => \PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER,
+                'vertical'   => \PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_CENTER,
+                'wrapText'   => true,
+            ],
+        ]);
+        $sheet->getRowDimension(2)->setRowHeight(45);
+
+        $row = 4;
+        foreach ($breakdown['employees'] as $emp) {
+            $blockStart = $row;
+
+            foreach ($rowTypes as $type => $bucket) {
+                $sheet->setCellValueExplicit("A{$row}", (string) $emp['id'], \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
+                $sheet->setCellValue("B{$row}", $emp['name']);
+                $sheet->setCellValue("C{$row}", $type);
+                $sheet->getStyle("C{$row}")->applyFromArray([
+                    'fill' => ['fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID, 'startColor' => ['rgb' => $typeFill($type)]],
+                    'font' => ['bold' => true, 'size' => 8, 'color' => ['rgb' => $typeFontRed($type) ? 'FF0000' : '000000']],
+                ]);
+
+                if ($bucket) {
+                    // Exact hours (whole minutes), shown with 2 decimals: rounding each day instead
+                    // made TOTAL / Sprout drift from the payroll file by up to ~0.1 over a cutoff.
+                    foreach ($dates as $i => $d) {
+                        $hours = $emp['days'][$d->format('Y-m-d')][$bucket] ?? 0;
+                        if ($hours != 0) {
+                            $sheet->setCellValue($col($firstDay + $i) . $row, $hours);
+                        }
+                    }
+                }
+
+                $sheet->setCellValue($col($totalCol) . $row, '=SUM(' . $dayRange($row) . ')');
+                $sheet->setCellValue(
+                    $col($sproutCol) . $row,
+                    $type === 'Hours Worked'
+                        ? '=SUM(' . $dayRange($row) . ')'
+                        : '=TEXT(SUM(' . $dayRange($row) . ')/24,"[hh]:mm")'
+                );
+                $row++;
+            }
+
+            // Closing row per employee: ID + NAME, blank Type, block total in a yellow TOTAL cell.
+            $blockEnd = $row - 1;
+            $sheet->setCellValueExplicit("A{$row}", (string) $emp['id'], \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
+            $sheet->setCellValue("B{$row}", $emp['name']);
+            $sheet->setCellValue($col($totalCol) . $row, '=SUM(' . $col($totalCol) . $blockStart . ':' . $col($totalCol) . $blockEnd . ')');
+            $sheet->getStyle($col($totalCol) . $row)->applyFromArray([
+                'fill' => ['fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID, 'startColor' => ['rgb' => 'FFFF00']],
+                'font' => ['bold' => true],
+            ]);
+            $row++;
+        }
+
+        $lastRow = max($row - 1, 3);
+        if ($lastRow >= 4) {
+            $sheet->getStyle($col($firstDay) . '4:' . $col($sproutCol) . $lastRow)->getNumberFormat()->setFormatCode('0.00');
+        }
+        $sheet->getStyle('A1:' . $col($sproutCol) . $lastRow)->getBorders()->getAllBorders()
+            ->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN);
+        $sheet->setAutoFilter("A3:C{$lastRow}");
+
+        $sheet->getColumnDimension('A')->setWidth(18);
+        $sheet->getColumnDimension('B')->setWidth(32);
+        $sheet->getColumnDimension('C')->setWidth(42);
+        $sheet->freezePane($col($firstDay) . '4');
+
+        (new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet))->save($path);
+
+        Log::info("generateDtrReport: wrote {$path}", [
+            'employees' => count($breakdown['employees']),
+            'period'    => [$breakdown['start'], $breakdown['end']],
+        ]);
     }
 
     /**
@@ -1024,27 +1450,10 @@ class AttendanceProcessor
             $date->addWeek();
         }
 
-        $holidays = [
-            "{$year}-01-01" => ["New Year's Day", "Regular Holiday"],
-            "{$year}-04-17" => ["Maundy Thursday", "Regular Holiday"],
-            "{$year}-04-18" => ["Good Friday", "Regular Holiday"],
-            "{$year}-04-09" => ["Araw ng Kagitingan (Day of Valor)", "Regular Holiday"],
-            "{$year}-05-01" => ["Labor Day", "Regular Holiday"],
-            "{$year}-06-06" => ["Eid’l Adha", "Regular Holiday"],
-            "{$year}-06-12" => ["Independence Day", "Regular Holiday"],
-            "{$year}-08-25" => ["National Heroes Day", "Regular Holiday"],
-            "{$year}-11-30" => ["Bonifacio Day", "Regular Holiday"],
-            "{$year}-12-25" => ["Christmas Day", "Regular Holiday"],
-            "{$year}-12-30" => ["Rizal Day", "Regular Holiday"],
-            "{$year}-01-29" => ["Chinese New Year", "Special Non-Working Holiday"],
-            "{$year}-04-19" => ["Black Saturday", "Special Non-Working Holiday"],
-            "{$year}-08-21" => ["Ninoy Aquino Day", "Special Non-Working Holiday"],
-            "{$year}-10-31" => ["All Saints’ Eve", "Special Non-Working Holiday"],
-            "{$year}-11-01" => ["All Saints’ Day", "Special Non-Working Holiday"],
-            "{$year}-12-08" => ["Feast of the Immaculate Conception", "Special Non-Working Holiday"],
-            "{$year}-12-24" => ["Christmas Eve", "Special Non-Working Holiday"],
-            "{$year}-12-31" => ["Last Day of the Year", "Special Non-Working Holiday"],
-        ];
+        $holidays = self::PUBLIC_HOLIDAYS[$year] ?? [];
+        if (!$holidays) {
+            Log::warning("calculateTotalNonWorkingDays: no public holiday list for {$year}; only Sundays were seeded.");
+        }
 
         DB::beginTransaction();
         try {
@@ -1055,8 +1464,6 @@ class AttendanceProcessor
                         'record_date' => $s,
                         'title' => 'Sunday Rest Day',
                         'holiday_type' => 'Rest Day',
-                        'created_at' => now(),
-                        'updated_at' => now()
                     ]);
                 }
             }
@@ -1070,8 +1477,6 @@ class AttendanceProcessor
                         'record_date' => $d,
                         'title' => $title2,
                         'holiday_type' => $type,
-                        'created_at' => now(),
-                        'updated_at' => now()
                     ]);
                 }
             }

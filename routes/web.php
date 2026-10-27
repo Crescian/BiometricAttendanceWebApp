@@ -3,7 +3,7 @@
 use App\Http\Controllers\BiometricImportController;
 use App\Http\Controllers\AttendanceRecordController;
 use App\Http\Controllers\LeaveController;
-use App\Http\Controllers\AttendanceLogController;
+use App\Http\Controllers\AuditLogController;
 use App\Http\Controllers\ScheduleController;
 use App\Http\Controllers\CompanyController;
 use App\Http\Controllers\DepartmentController;
@@ -17,6 +17,7 @@ use App\Http\Controllers\PageController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\CsvimportController;
 use App\Http\Controllers\EmployeeManagementController;
+use App\Http\Controllers\UserManagementController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -35,10 +36,26 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // 🧑‍💼 Admin-only routes
     Route::middleware('role:admin')->group(function () {
         Route::get('/organization-structure', [PageController::class, 'organizationStructure'])->name('organization.structure');
+        Route::get('/user-management', [PageController::class, 'userManagement'])->name('user.management');
         Route::get('/biometric-data', [PageController::class, 'biometricData'])->name('biometric.data');
         Route::get('/csv-import', [PageController::class, 'csvImport'])->name('csv.import');
         Route::get('/attendance-tracking', [PageController::class, 'attendanceTracking'])->name('attendance.tracking');
-        Route::get('/attendance-log', [PageController::class, 'attendanceLog'])->name('attendance.log');
+        // Audit Log (read-only; viewing, exporting and verifying are themselves audited)
+        Route::get('/attendance-log', [AuditLogController::class, 'index'])->name('attendance.log');
+        Route::get('/audit-log', [AuditLogController::class, 'index'])->name('audit.log');
+        Route::get('/audit-log/data', [AuditLogController::class, 'data'])->name('audit.data');
+        Route::get('/audit-log/export', [AuditLogController::class, 'export'])->name('audit.export');
+        Route::post('/audit-log/verify', [AuditLogController::class, 'verify'])->name('audit.verify');
+        Route::get('/audit-log/{id}', [AuditLogController::class, 'show'])->whereNumber('id')->name('audit.show');
+
+        // Biometric imports: edit title/period, delete with all related data
+        Route::put('/biometric-history-list/{id}', [BiometricHistoryListController::class, 'update'])->whereNumber('id')->name('biometric-history-list.update');
+        Route::get('/biometric-history-list/{id}/delete-preview', [BiometricHistoryListController::class, 'deletePreview'])->whereNumber('id')->name('biometric-history-list.delete-preview');
+        Route::delete('/biometric-history-list/{id}', [BiometricHistoryListController::class, 'destroy'])->whereNumber('id')->name('biometric-history-list.destroy');
+
+        // Manual Time In / Time Out on attendance records
+        Route::post('/attendance-record', [AttendanceRecordController::class, 'store'])->name('attendance-record.store');
+        Route::post('/attendance-record/{id}', [AttendanceRecordController::class, 'update'])->name('attendance-record.update');
     });
 });
 
@@ -51,24 +68,19 @@ Route::middleware('auth')->group(function () {
     Route::post('/csv-import', [CsvimportController::class, 'importCSV'])->name('import.csv');
     Route::post('/upload-csv', [CsvimportController::class, 'uploadCSV'])->name('upload.csv');
     Route::post('/get-entry-dates', [CsvimportController::class, 'getDistinctEntryDates'])->name('report.fetch');
-    Route::get('/export-csv', [CsvimportController::class, 'exportCsv'])->name('export.csv');
-    Route::post('/save-overtime-json', [CsvimportController::class, 'saveOvertimeJson'])->name('export.saveOvertimeJson');
-    Route::post('/save-custom-holiday-json', [CsvimportController::class, 'saveCustomHolidayJson'])->name('export.saveCustomHolidayJson');
+    // Payroll data (names, basic pay): admins only
+    Route::get('/export-csv', [CsvimportController::class, 'exportCsv'])->middleware('role:admin')->name('export.csv');
 
-    Route::post('/append-employee-date', [CsvimportController::class, 'appendDate']);
-    Route::post('/append-attendance-certificates', [CsvimportController::class, 'appendAttendanceCertificates']);
-    Route::get('/employee-date/count', [CsvimportController::class, 'count']);
     Route::post('/report-generation', [CsvimportController::class, 'reportGeneration'])->name('report.generation');
-    Route::post('/finalize-attendance-certificates', [CsvimportController::class, 'finalizeAttendanceCertificates'])->name('finalize.attendance.certificates');
-    Route::post('/run-edit-ot', [CsvimportController::class, 'runEditOt']);
 
     Route::get('/employees', [EmployeeManagementController::class, 'index'])->name('employees.fetch');
+    Route::get('/employees-check-unique-id', [EmployeeManagementController::class, 'checkUniqueId'])->name('employees.checkUniqueId');
+    Route::get('/employees-suggest-unique-id', [EmployeeManagementController::class, 'suggestUniqueId'])->name('employees.suggestUniqueId');
     Route::get('/employees/{id}', [EmployeeManagementController::class, 'edit'])->name('employees.edit');
     Route::put('/employees/{id}', [EmployeeManagementController::class, 'update'])->name('employees.update');
     Route::post('/employeesStore', [EmployeeManagementController::class, 'store'])->name('employees.store');
     Route::delete('/employees/{id}', [EmployeeManagementController::class, 'destroy'])->name('employees.destroy');
     Route::post('/employees', [EmployeeManagementController::class, 'fetch'])->name('employees.fetchs');
-    Route::get('/biometricData', [EmployeeManagementController::class, 'showImportForm'])->name('employee.import.form');
     Route::post('/biometricData', [EmployeeManagementController::class, 'import'])->name('employee.import');
     Route::post('/export-biometric-csv', [EmployeeManagementController::class, 'exportToCsv'])->name('employee.export.csv');
     Route::get('/fetch-uniqueids', [EmployeeManagementController::class, 'fetchEmployeeName'])->name('employee.fetch.employeename');
@@ -79,23 +91,36 @@ Route::middleware('auth')->group(function () {
     Route::get('/overtime', [OvertimeController::class, 'index'])->name('overtime.fetch');
     Route::post('/overtime/{id}/approved', [OvertimeController::class, 'approve'])->name('overtime.approve');
     Route::post('/overtime/{id}/cancelled', [OvertimeController::class, 'cancel'])->name('overtime.cancel');
+    // Must stay above /overtime/{id}, which would otherwise capture these paths as an id
+    Route::post('/overtime/bulk-approve', [OvertimeController::class, 'bulkApprove'])->name('overtime.bulkApprove');
+    Route::get('/overtime/bulk-options', [OvertimeController::class, 'bulkOptions'])->name('overtime.bulkOptions');
+    Route::get('/overtime/filter-options', [OvertimeController::class, 'filterOptions'])->name('overtime.filterOptions');
+    Route::post('/overtime/bulk-approve-by', [OvertimeController::class, 'bulkApproveBy'])->name('overtime.bulkApproveBy');
     Route::post('/overtime/{id}', [OvertimeController::class, 'updateTime'])->name('overtime.updateTime');
     Route::get('/overtime/{id}', [OvertimeController::class, 'edit'])->name('overtime.edit');
 
     Route::get('/certificate-attendance-summary', [CertificateOfAttendanceController::class, 'getCertificateAttendanceSummary']);
     Route::get('/certificateOfAttendance', [CertificateOfAttendanceController::class, 'index'])->name('certificateOfAttendance.fetch');
     Route::get('/certificateOfAttendance/counts', [CertificateOfAttendanceController::class, 'getCertificateOfAttendanceCounts'])->name('certificateOfAttendance.counts');
+    Route::get('/certificateOfAttendance/filter-options', [CertificateOfAttendanceController::class, 'filterOptions'])->name('certificateOfAttendance.filterOptions');
     Route::post('/certificate-attendance/store', [CertificateOfAttendanceController::class, 'store'])->name('certificateOfAttendance.store');
     Route::post('/certificateOfAttendance/{id}/approved', [CertificateOfAttendanceController::class, 'approve'])->name('certificateOfAttendance.approve');
     Route::post('/certificateOfAttendance/{id}/cancelled', [CertificateOfAttendanceController::class, 'cancel'])->name('certificateOfAttendance.cancel');
+    Route::post('/certificateOfAttendance/bulk-approve', [CertificateOfAttendanceController::class, 'bulkApprove'])->name('certificateOfAttendance.bulkApprove');
+    Route::get('/certificateOfAttendance/bulk-options', [CertificateOfAttendanceController::class, 'bulkOptions'])->name('certificateOfAttendance.bulkOptions');
+    Route::post('/certificateOfAttendance/bulk-approve-by', [CertificateOfAttendanceController::class, 'bulkApproveBy'])->name('certificateOfAttendance.bulkApproveBy');
 
     Route::get('/schedule-adjustments/status-summary', [ScheduleAdjustmentController::class, 'getScheduleAdjustmentSummary'])
     ->name('schedule.status.summary');
     Route::get('/schedule-adjustment', [ScheduleAdjustmentController::class, 'index'])->name('schedule.adjustment');
     Route::get('/scheduleAdjustment/counts', [ScheduleAdjustmentController::class, 'getScheduleAdjustmentCounts'])->name('scheduleAdjustment.counts');
+    Route::get('/scheduleAdjustment/filter-options', [ScheduleAdjustmentController::class, 'filterOptions'])->name('scheduleAdjustment.filterOptions');
     Route::post('/scheduleAdjustment/store', [ScheduleAdjustmentController::class, 'store'])->name('scheduleAdjustment.store');
     Route::post('/scheduleAdjustment/{id}/approved', [ScheduleAdjustmentController::class, 'approve'])->name('scheduleAdjustment.approve');
     Route::post('/scheduleAdjustment/{id}/cancelled', [ScheduleAdjustmentController::class, 'cancel'])->name('scheduleAdjustment.cancel');
+    Route::post('/scheduleAdjustment/bulk-approve', [ScheduleAdjustmentController::class, 'bulkApprove'])->name('scheduleAdjustment.bulkApprove');
+    Route::get('/scheduleAdjustment/bulk-options', [ScheduleAdjustmentController::class, 'bulkOptions'])->name('scheduleAdjustment.bulkOptions');
+    Route::post('/scheduleAdjustment/bulk-approve-by', [ScheduleAdjustmentController::class, 'bulkApproveBy'])->name('scheduleAdjustment.bulkApproveBy');
 
     Route::post('/custom-dates/store', [CustomDateController::class, 'store'])->name('custom-dates.store');
     Route::get('/custom-dates', [CustomDateController::class, 'index'])->name('custom-dates.index');
@@ -117,6 +142,13 @@ Route::middleware('auth')->group(function () {
     Route::delete('/department/{id}', [DepartmentController::class, 'destroy'])->name('department.destroy');
     Route::get('/department', [DepartmentController::class, 'getUserDepartment'])->name('department.getUserDepartment');
 
+    Route::middleware('role:admin')->group(function () {
+        Route::get('/users', [UserManagementController::class, 'index'])->name('users.fetch');
+        Route::post('/users', [UserManagementController::class, 'store'])->name('users.store');
+        Route::put('/users/{id}', [UserManagementController::class, 'update'])->whereNumber('id')->name('users.update');
+        Route::get('/users/directory', [UserManagementController::class, 'directory'])->name('users.directory');
+    });
+
     Route::get('/business-unit', [BusinessUnitController::class, 'index'])->name('business-unit.fetch');
     Route::post('/business-unit', [BusinessUnitController::class, 'store'])->name('business-unit.store');
     Route::put('/business-unit/{id}', [BusinessUnitController::class, 'update'])->name('business-unit.update');
@@ -126,93 +158,68 @@ Route::middleware('auth')->group(function () {
     Route::post('/schedule/store', [ScheduleController::class, 'store'])->name('schedule.store');
     Route::delete('/schedule/delete/{id}', [ScheduleController::class, 'destroy'])->name('schedule.delete');
 
-    Route::get('/attendanceLogs/fetch', [AttendanceLogController::class, 'fetch'])->name('attendanceLogs.fetch');
 
     Route::get('/leaves/status-summary', [LeaveController::class, 'getLeaveStatusSummary'])
     ->name('leaves.status.summary');
     Route::get('/leave/fetch', [LeaveController::class, 'index'])->name('leave.fetch');
+    Route::get('/leave/filter-options', [LeaveController::class, 'filterOptions'])->name('leave.filterOptions');
     Route::post('/leave/store', [LeaveController::class, 'store'])->name('leave.store');
     Route::get('/leave/counts', [LeaveController::class, 'getLeavesCounts'])->name('leave.counts');
     Route::post('/leave/{id}/approved', [LeaveController::class, 'approve'])->name('leave.approve');
     Route::post('/leave/{id}/cancelled', [LeaveController::class, 'cancel'])->name('leave.cancel');
+    Route::post('/leave/bulk-approve', [LeaveController::class, 'bulkApprove'])->name('leave.bulkApprove');
+    Route::get('/leave/bulk-options', [LeaveController::class, 'bulkOptions'])->name('leave.bulkOptions');
+    Route::post('/leave/bulk-approve-by', [LeaveController::class, 'bulkApproveBy'])->name('leave.bulkApproveBy');
 
     Route::get('/attendance-record/fetch', [AttendanceRecordController::class, 'index'])->name('attendance-record.fetch');
-    Route::get('/attendance/graph', [AttendanceRecordController::class, 'showAttendanceGraph'])->name('attendance.graph');
+    Route::get('/attendance-record/filter-options', [AttendanceRecordController::class, 'filterOptions'])->name('attendance-record.filterOptions');
     Route::get('/attendance/summary', [AttendanceRecordController::class, 'getAttendanceSummary'])->name('attendance.summary');
 
 
-    Route::get('/download/converted-file', function () {
-        $path = public_path('python/ConvertedFile.csv'); // correct filename
+    // Generated reports hold names and pay: admins only
+    Route::middleware('role:admin')->group(function () {
+        Route::get('/download/payroll-file', function () {
+            $path = \App\Services\AttendanceProcessor::reportPath('payroll file.xlsx');
 
-        if (!file_exists($path)) {
-            abort(404, 'File not found.');
-        }
+            if (!file_exists($path)) {
+                abort(404, 'File not found.');
+            }
 
-        return response()->download($path, 'ConvertedFile.csv', [
-            'Content-Type' => 'text/csv',
-        ]);
-    })->name('download.convertedfile');
-
-
-    Route::get('/download/payroll-file', function () {
-        $path = public_path('python/payroll file.xlsx');
-
-        if (!file_exists($path)) {
-            abort(404, 'File not found.');
-        }
-
-        return response()->download($path, 'payroll file.xlsx', [
-            'Content-Type' => 'text/xlsx',
-        ]);
-    })->name('download.payrollfile');
+            return response()->download($path, 'payroll file.xlsx', [
+                'Content-Type' => 'text/xlsx',
+            ]);
+        })->name('download.payrollfile');
 
 
-    Route::get('/download/report-dtr', function () {
-        $path = public_path('python/reportdtr.xlsx');
+        Route::get('/download/report-dtr', function () {
+            $path = \App\Services\AttendanceProcessor::reportPath('reportdtr.xlsx');
 
-        if (!file_exists($path)) {
-            abort(404, 'File not found.');
-        }
+            if (!file_exists($path)) {
+                abort(404, 'File not found.');
+            }
 
-        return response()->download($path, 'reportdtr.xlsx', [
-            'Content-Type' => 'text/xlsx',
-        ]);
-    })->name('download.reportdtr');
+            return response()->download($path, 'reportdtr.xlsx', [
+                'Content-Type' => 'text/xlsx',
+            ]);
+        })->name('download.reportdtr');
+    });
 
     Route::get('/download/security', function () {
-        $path = public_path('python/security.xlsx');
+        // Admins, plus the security account that report_generation.blade.php also lets download it.
+        abort_unless(auth()->user()->role === 'admin' || (int) auth()->id() === 7, 403, 'Unauthorized access.');
+
+        // Written by SecurityReportService during report generation; absent when the
+        // active batch has no SECURITY attendance.
+        $path = \App\Services\AttendanceProcessor::reportPath('security.xlsx');
 
         if (!file_exists($path)) {
-            abort(404, 'File not found.');
+            abort(404, 'No security report for the active biometric import.');
         }
 
         return response()->download($path, 'security.xlsx', [
             'Content-Type' => 'text/xlsx',
         ]);
     })->name('download.security');
-
-    // routes/web.php
-    Route::post('/overtime_logs/approve', function(\Illuminate\Http\Request $request) {
-        $payload = $request->all();
-        $path    = public_path('overtime_logs.json');
-        $json    = json_decode(file_get_contents($path), true);
-
-        foreach ($json as &$item) {
-            if ($item['id'] === $payload['id']
-                && $item['record_date'] === $payload['date']
-            ) {
-                $item['approval_status'] = "true";
-                break;
-            }
-        }
-
-        file_put_contents($path, json_encode($json, JSON_PRETTY_PRINT));
-        return response()->json(['success' => true]);
-    });
-
-
-    Route::post('/employee_dates/remove', [CsvimportController::class, 'removeEntry'])
-        ->name('employee_dates.remove');
-    });
+});
 
 require __DIR__.'/auth.php';

@@ -2,12 +2,13 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\Auditable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class ScheduleAdjustment extends Model
 {
-    use HasFactory;
+    use Auditable, HasFactory;
     protected $table = 'schedule_adjustments'; // Specify the table name
     protected $fillable = [
         'employee_management_id',

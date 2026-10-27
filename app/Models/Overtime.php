@@ -2,12 +2,13 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\Auditable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class Overtime extends Model
 {
-    use HasFactory;
+    use Auditable, HasFactory;
 
     protected $fillable = [
         'unique_id',
@@ -41,7 +42,8 @@ class Overtime extends Model
         'biometric_imports_id',
         'schedule_shift',
         'is_cutoff',
-        'attendance_records_id'
+        'attendance_records_id',
+        'employee_management_id',
     ];
 
 }

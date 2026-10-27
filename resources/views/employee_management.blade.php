@@ -1,55 +1,55 @@
 <x-app-layout>
 
-    <!-- Table Section inside Card -->
-    <div class="p-6 mt-5">
-        <div class="bg-white shadow-lg rounded-lg border border-gray-200">
-            <!-- Card Header -->
-            <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-                <h2 class="font-bold text-3xl">
-                    <i class="fa-regular fa-clone" style="color: #8DE11A; font-size: 40px"></i>
-                    {{ __('Employee Management') }}
-                </h2>
-                <button x-data @click.prevent="$dispatch('open-modal', 'add-employee')"
-                    class="flex items-center px-4 py-2 bg-white text-green-600 font-semibold rounded-lg shadow-sm border border-green-600">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24"
-                        stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
-                    </svg>
-                    Add
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 ml-2" fill="none" viewBox="0 0 24 24"
-                        stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-                    </svg>
-                </button>
-            </div>
+    <x-approval-table-assets />
 
-            <!-- Table Section -->
-            <div class="p-6 text-gray-900">
-                <div id="overtime-table-container" class="border rounded-lg shadow-sm">
-                    <div id="pagination" class="flex items-center justify-center my-4 space-x-4"></div>
-                    <table id="employeeTable" class="min-w-full table-auto">
-                        <thead class="text-white text-sm sticky top-0" style="background-color: #00291B;">
-                            <tr>
-                                <th class="px-4 py-2 text-white font-bold">Unique ID</th>
-                                <th class="px-4 py-2 text-white">Employee Name</th>
-                                <th class="px-4 py-2 text-white">Department</th>
-                                <th class="px-4 py-2 text-white">Supervisor</th>
-                                <th class="px-4 py-2 text-white">Schedule</th>
-                                <th class="px-4 py-2 text-white">Basic Salary</th>
-                                <th class="px-4 py-2 text-white">Status</th>
-                                <th class="px-4 py-2 text-white text-center">Action</th>
-                            </tr>
-                        </thead>
-                        <tbody id="overtime-body" class="text-sm text-gray-800 divide-y divide-gray-200">
-                            <!-- Data will be injected here -->
-                        </tbody>
-                    </table>
+    <div class="px-2 lg:px-4">
+        <!-- Page header + toolbar -->
+        <div class="flex flex-wrap items-center justify-between gap-3 px-4 pt-4 pb-3">
+            <h1 class="text-xl font-semibold text-gray-900">{{ __('Employee Management') }}</h1>
+            <div class="flex flex-wrap items-center gap-2">
+                <button type="button" x-data @click.prevent="$dispatch('open-modal', 'add-employee'); openAddEmployee()"
+                    class="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-white bg-green-600 rounded-md hover:bg-green-700 shadow-sm">
+                    <i class="fa-solid fa-plus"></i>
+                    Add
+                </button>
+                <div class="relative">
+                    <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i>
+                    <input id="emp-search" type="search" placeholder="Search"
+                        class="w-48 pl-8 pr-3 py-1.5 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500">
+                </div>
+                <div id="emp-toolbar-buttons" class="flex items-center gap-2"></div>
+            </div>
+        </div>
+
+        <!-- Table card -->
+        <div class="px-4 pb-4">
+            <div class="bg-white rounded-lg border border-gray-200 shadow-sm">
+                <div class="p-2 text-gray-900">
+                    <div class="border border-gray-200 rounded-md overflow-hidden">
+                        <div class="overflow-x-auto">
+                            <table id="employeeTable" class="modern-table w-full text-sm">
+                                <thead>
+                                    <tr>
+                                        <th class="noVis" style="width: 2rem;"></th>
+                                        <th>ID</th>
+                                        <th>Employee</th>
+                                        <th>Department</th>
+                                        <th>Supervisor</th>
+                                        <th>Schedule</th>
+                                        <th>Basic Salary</th>
+                                        <th>Status</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Edit Employee Modal -->
     <x-modal name="edit-employee" focusable>
         <div class="p-8 bg-white rounded-xl">
             <div class="mb-6">
@@ -60,20 +60,33 @@
             <div class="space-y-6">
                 <!-- Schedule -->
                 <div>
-                    <label for="schedule" class="block text-sm font-semibold text-gray-700 mb-2">
+                    <label for="scheduleStart" class="block text-sm font-semibold text-gray-700 mb-2">
                         Work Schedule
                     </label>
-                    <select id="schedule" name="schedule"
-                        class="w-full px-4 py-3 border border-gray-300 rounded-lg bg-white text-gray-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 transition-all duration-200">
-                        <option value="" disabled selected class="text-gray-400">Select schedule</option>
-                    </select>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <span class="block text-xs text-gray-500 mb-1">Time Start</span>
+                            <input type="time" step="3600" id="scheduleStart"
+                                oninput="previewSchedule('schedule')"
+                                class="w-full px-4 py-3 border border-gray-300 rounded-lg bg-white text-gray-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 transition-all duration-200">
+                        </div>
+                        <div>
+                            <span class="block text-xs text-gray-500 mb-1">Time End</span>
+                            <input type="time" step="3600" id="scheduleEnd"
+                                oninput="previewSchedule('schedule')"
+                                class="w-full px-4 py-3 border border-gray-300 rounded-lg bg-white text-gray-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 transition-all duration-200">
+                        </div>
+                    </div>
+                    <p id="schedulePreview" class="mt-2 text-xs text-gray-500">Whole hours only. A Time End earlier than Time Start is an overnight shift.</p>
                 </div>
 
                 <!-- Unique ID -->
                 <div>
-                    <label class="block text-sm font-semibold text-gray-700 mb-2">Unique ID</label>
-                    <input id="employeeUniqueId" type="text"
-                        class="w-full px-4 py-3 border border-gray-300 rounded-lg bg-gray-50 text-gray-600" readonly>
+                    <label for="employeeUniqueId" class="block text-sm font-semibold text-gray-700 mb-2">Unique ID</label>
+                    <input id="employeeUniqueId" type="text" onblur="checkUniqueIdConflict('employeeUniqueId', 'uniqueIdConflict', globalID, originalUniqueId)"
+                        class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 transition-all duration-200">
+                    <p class="mt-2 text-xs text-gray-500">Changing this also updates the ID on the employee's overtime records.</p>
+                    <p id="uniqueIdConflict" class="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2 hidden"></p>
                 </div>
 
                 <!-- Name Fields -->
@@ -155,20 +168,51 @@
             <div class="space-y-6">
                 <!-- Schedule -->
                 <div>
-                    <label for="employeeAddSchedule" class="block text-sm font-semibold text-gray-700 mb-2">
+                    <label for="employeeAddScheduleStart" class="block text-sm font-semibold text-gray-700 mb-2">
                         Work Schedule
                     </label>
-                    <select id="employeeAddSchedule" name="employeeAddSchedule"
-                        class="w-full px-4 py-3 border border-gray-300 rounded-lg bg-white text-gray-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 transition-all duration-200">
-                    </select>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <span class="block text-xs text-gray-500 mb-1">Time Start</span>
+                            <input type="time" step="3600" id="employeeAddScheduleStart"
+                                oninput="previewSchedule('employeeAddSchedule')"
+                                class="w-full px-4 py-3 border border-gray-300 rounded-lg bg-white text-gray-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 transition-all duration-200">
+                        </div>
+                        <div>
+                            <span class="block text-xs text-gray-500 mb-1">Time End</span>
+                            <input type="time" step="3600" id="employeeAddScheduleEnd"
+                                oninput="previewSchedule('employeeAddSchedule')"
+                                class="w-full px-4 py-3 border border-gray-300 rounded-lg bg-white text-gray-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 transition-all duration-200">
+                        </div>
+                    </div>
+                    <p id="employeeAddSchedulePreview" class="mt-2 text-xs text-gray-500">Whole hours only. A Time End earlier than Time Start is an overnight shift.</p>
                 </div>
 
                 <!-- Unique ID -->
                 <div>
-                    <label for="employeeAddUniqueId" class="block text-sm font-semibold text-gray-700 mb-2">Unique
-                        ID</label>
+                    <div class="flex items-center gap-1.5 mb-2">
+                        <label for="employeeAddUniqueId" class="block text-sm font-semibold text-gray-700">Unique ID</label>
+                        {{-- Explanation on hover / keyboard focus --}}
+                        <span class="relative z-[100] inline-flex group">
+                            <i class="fa-solid fa-circle-info text-gray-400 hover:text-gray-600 group-focus-within:text-gray-600 cursor-help"
+                                tabindex="0" role="img" aria-label="How is the Unique ID suggested?"
+                                aria-describedby="add-unique-id-tip"></i>
+                            <span id="add-unique-id-tip" role="tooltip"
+                                class="invisible opacity-0 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100 transition-opacity absolute left-1/2 -translate-x-1/2 top-full mt-2 z-[9999] w-72 p-2.5 rounded-md bg-gray-900 text-white text-[11px] leading-snug font-normal shadow-lg">
+                                <strong class="block mb-1">Suggested Unique ID</strong>
+                                Filled in with the next ID in the sequence:
+                                <span class="font-mono">TMNG-&lt;year+month&gt;-&lt;next number&gt;</span>, or
+                                <span class="font-mono">SC-…-&lt;next number&gt;</span> for Security.
+                                <span class="block mt-1.5">You can type a different ID. If it already belongs to
+                                someone, you'll be asked to give them a new one.</span>
+                            </span>
+                        </span>
+                    </div>
                     <input type="text" id="employeeAddUniqueId" name="unique_id"
+                        oninput="updateAddUniqueIdHint()" onblur="checkUniqueIdConflict('employeeAddUniqueId', 'addUniqueIdConflict')"
                         class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 transition-all duration-200">
+                    <p id="addUniqueIdHint" class="mt-2 text-xs text-gray-500"></p>
+                    <p id="addUniqueIdConflict" class="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2 hidden"></p>
                 </div>
 
                 <!-- Name Fields -->
@@ -195,7 +239,7 @@
                         {{-- <input type="text" id="employeeAddDepartment" name="department"
                             class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 transition-all duration-200"> --}}
 
-                        <select id="employeeAddDepartment" name="employeeAddDepartment"
+                        <select id="employeeAddDepartment" name="employeeAddDepartment" onchange="suggestAddUniqueId()"
                             class="w-full px-4 py-3 border border-gray-300 rounded-lg bg-white text-gray-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 transition-all duration-200">
                             <option value="" disabled selected class="text-gray-400">Select department</option>
                         </select>
@@ -248,7 +292,7 @@
         const userId = "{{ Auth::user()->id ?? '' }}";
         const userRole = "{{ Auth::user()->role ?? '' }}";
         loadEmployeeTable();
-        loadSchedule();
+        bindTableSearch('#emp-search', '#employeeTable');
         loadDepartment();
         let globalID;
 
@@ -274,245 +318,346 @@
             });
         }
 
-        function loadSchedule() {
-            // Load Schedule
-            $('#employeeAddSchedule').html(''); // Clear existing options
-            $('#employeeAddSchedule').append('<option value="">Select Schedule...</option>');
-            $('#schedule').html(''); // Clear existing options
-            $('#schedule').append('<option value="">Select Schedule...</option>');
+        /** -----------------------------
+         *  WORK SCHEDULE <-> FORMULA CODE
+         *  The overtime formula reads employee_management.schedule as
+         *  "{startHour}-{endHour}" (24h, whole hours, no leading zeros), e.g. "7-16", "19-7".
+         * ------------------------------*/
+        // Same night-shift / no-break lists as ComputationService and AttendanceProcessor.
+        const NIGHT_SHIFT_CODES = ['18-6', '19-7', '19-4', '20-5', '15-23', '15-24', '23-7', '23-8'];
+        const NO_BREAK_CODES = ['15-23', '23-7'];
 
-            $.ajax({
-                url: "{{ route('schedule.fetch') }}",
-                type: 'GET',
-                success: function(response) {
-                    // Helper function: convert 24-hour number to 12-hour format
-                    function format12Hour(hour24) {
-                        let hour = parseInt(hour24);
-                        let suffix = hour >= 12 ? 'PM' : 'AM';
-                        hour = hour % 12;
-                        if (hour === 0) hour = 12;
-                        return hour + suffix;
-                    }
-                    response.forEach((item, index) => {
-                        // Convert schedule_name (e.g., "8-15") to 12-hour format
-                        let [from, to] = item.schedule_name.split('-');
-                        let formattedTime = `${format12Hour(from)}-${format12Hour(to)}`;
+        // Returns {code} or {error}.
+        function toScheduleCode(start, end) {
+            if (!start || !end) return { error: 'Enter both Time Start and Time End for the work schedule.' };
 
-                        $('#employeeAddSchedule').append(
-                            `<option value="${item.schedule_name}">${formattedTime} ${item.schedule_type}</option>`
-                        );
-                        $('#schedule').append(
-                            `<option value="${item.schedule_name}">${formattedTime} ${item.schedule_type}</option>`
-                        );
-                    });
-                }
-            });
+            const [sh, sm] = start.split(':').map(Number);
+            const [eh, em] = end.split(':').map(Number);
+
+            if (sm !== 0 || em !== 0) return { error: 'Work schedule must be in whole hours (e.g. 07:00, 16:00).' };
+            if (sh === eh) return { error: 'Work schedule start and end time must be different.' };
+
+            // Midnight end is stored as 24 (e.g. 15-24), matching the formula's shift lists.
+            const endHour = (eh === 0 && sh !== 0) ? 24 : eh;
+            return { code: `${sh}-${endHour}` };
+        }
+
+        // "19-7" -> {start: "19:00", end: "07:00"}; null when the stored value can't be parsed.
+        function fromScheduleCode(code) {
+            const match = /^(\d{1,2})-(\d{1,2})$/.exec(String(code ?? '').trim());
+            if (!match) return null;
+            const pad = h => String(parseInt(h, 10) % 24).padStart(2, '0') + ':00';
+            return { start: pad(match[1]), end: pad(match[2]) };
+        }
+
+        function describeSchedule(code) {
+            const [sh, eh] = code.split('-').map(Number);
+            const parts = [];
+            if (eh < sh || eh === 24) parts.push('overnight');
+            if (NIGHT_SHIFT_CODES.includes(code)) parts.push('night shift');
+            if (NO_BREAK_CODES.includes(code)) parts.push('no break');
+            return parts.join(', ');
+        }
+
+        function previewSchedule(prefix) {
+            const start = $(`#${prefix}Start`).val();
+            const end = $(`#${prefix}End`).val();
+            const $preview = $(`#${prefix}Preview`);
+
+            if (!start || !end) {
+                $preview.removeClass('text-red-600').addClass('text-gray-500')
+                    .text('Whole hours only. A Time End earlier than Time Start is an overnight shift.');
+                return;
+            }
+
+            const result = toScheduleCode(start, end);
+            if (result.error) {
+                $preview.removeClass('text-gray-500').addClass('text-red-600').text(result.error);
+                return;
+            }
+
+            const details = describeSchedule(result.code);
+            $preview.removeClass('text-red-600').addClass('text-gray-500')
+                .html(`Saved as <strong>${result.code}</strong>${details ? ' (' + details + ')' : ''}`);
+        }
+
+        function setScheduleInputs(prefix, code) {
+            const times = fromScheduleCode(code);
+            $(`#${prefix}Start`).val(times ? times.start : '');
+            $(`#${prefix}End`).val(times ? times.end : '');
+            previewSchedule(prefix);
+
+            if (!times && code) {
+                $(`#${prefix}Preview`).removeClass('text-gray-500').addClass('text-red-600')
+                    .text(`Current value "${code}" is not a valid schedule. Enter Time Start and Time End.`);
+            }
+        }
+
+        // Builds the schedule code from the inputs, or shows an alert and returns null.
+        function readScheduleInputs(prefix) {
+            const result = toScheduleCode($(`#${prefix}Start`).val(), $(`#${prefix}End`).val());
+            if (result.error) {
+                Swal.fire({ icon: 'error', title: 'Invalid Work Schedule', text: result.error });
+                return null;
+            }
+            return result.code;
         }
 
         function loadEmployeeTable() {
-            // Destroy existing DataTable if already initialized
             if ($.fn.DataTable.isDataTable('#employeeTable')) {
                 $('#employeeTable').DataTable().clear().destroy();
             }
+            $('#emp-toolbar-buttons').empty();
 
             $.ajax({
                 url: "{{ route('department.getUserDepartment') }}",
                 type: 'GET',
                 dataType: 'json',
                 success: function(data) {
-                    console.log("Department Data:", userRole); // 👈 add this line
-                    let departmentName;
-                    if (!data.success) {
-                        departmentName = 'N/A';
-                    } else {
-                        departmentName = data.data.department_name;
-                    }
+                    let departmentName = !data.success ? 'N/A' : data.data.department_name;
 
                     setTimeout(() => {
-                        let table = $('#employeeTable').DataTable({
-                            // processing: true,
+                        const table = $('#employeeTable').DataTable({
                             serverSide: true,
                             autoWidth: false,
-                            responsive: true,
-                            lengthChange: true, // only keep this
-                            lengthMenu: [10, 20, 50], // page length options
-                            pageLength: 50, // default rows per page
-                            dom: '<"flex justify-between items-center mb-4"Bf>rt<"flex justify-between items-center mt-4"lip>',
+                            responsive: {
+                                details: {
+                                    type: 'column',
+                                    target: 0
+                                }
+                            },
+                            lengthChange: true,
+                            lengthMenu: [10, 20, 50],
+                            pageLength: 50,
+                            dom: 'rt<"flex flex-wrap justify-between items-center gap-2 px-3 py-2 border-t border-gray-200 text-xs text-gray-600"lip>',
+                            search: {
+                                search: $('#emp-search').val() || ''
+                            },
+                            // Only the columns marked orderable: true can be sorted
+                            columnDefs: [{ targets: '_all', orderable: false }],
+                            order: [
+                                [1, 'asc']
+                            ],
                             ajax: {
                                 url: "{{ route('employees.fetch') }}",
                                 data: function(d) {
-                                    d.userRole = userRole; // admin or user
-                                    d.department = departmentName; // only applies for user
-                                    console.log("Sending:", d); // 👈 add this line
+                                    d.userRole = userRole;
+                                    d.department = departmentName; // the server only applies it to non-admins
                                 }
                             },
-                            buttons: [{
-                                    extend: 'collection',
-                                    text: '<i class="fa fa-download mr-1 text-green-600"></i> Export',
-                                    className: 'flex items-center px-4 py-2 bg-white font-semibold rounded-lg shadow-sm border border-green-600 mt-3',
-                                    attr: {
-                                        style: 'border-color:#16a34a !important;'
-                                    },
-                                    buttons: [{
-                                            extend: 'copyHtml5',
-                                            text: '<i class="fa fa-copy mr-1 text-gray-700"></i> Copy',
-                                            className: 'bg-white text-black px-3 py-1 rounded hover:bg-gray-100 border border-gray-300'
-                                        },
-                                        {
-                                            extend: 'excelHtml5',
-                                            text: '<i class="fa fa-file-excel mr-1 text-green-600"></i> Excel',
-                                            className: 'bg-white text-black px-3 py-1 rounded hover:bg-green-50 border border-gray-300'
-                                        },
-                                        {
-                                            extend: 'csvHtml5',
-                                            text: '<i class="fa fa-file-csv mr-1 text-blue-600"></i> CSV',
-                                            className: 'bg-white text-black px-3 py-1 rounded hover:bg-blue-50 border border-gray-300'
-                                        },
-                                        {
-                                            extend: 'pdfHtml5',
-                                            text: '<i class="fa fa-file-pdf mr-1 text-red-600"></i> PDF',
-                                            className: 'bg-white text-black px-3 py-1 rounded hover:bg-red-50 border border-gray-300'
-                                        },
-                                        {
-                                            extend: 'print',
-                                            text: '<i class="fa fa-print mr-1 text-gray-700"></i> Print',
-                                            className: 'bg-white text-black px-3 py-1 rounded hover:bg-gray-100 border border-gray-300'
-                                        }
-                                    ]
-                                },
+                            buttons: exportAndColumnButtons(),
+                            columns: [
+                                expandControlColumn,
                                 {
-                                    extend: 'colvis',
-                                    text: '<i class="fa fa-columns mr-1 text-green-600"></i> Columns',
-                                    className: 'flex items-center px-4 py-2 bg-white font-semibold rounded-lg shadow-sm border border-green-600 mt-3',
-                                    attr: {
-                                        style: 'border-color:#16a34a !important;'
-                                    },
-                                    columns: ':not(:last-child)',
-                                    columnText: function(dt, idx, title) {
-                                        const defaultTitles = [
-                                            'Unique ID',
-                                            'Employee Name',
-                                            'Department',
-                                            'Report To',
-                                            'Schedule',
-                                            'Basic Salary',
-                                            'Action'
-                                        ];
-                                        return defaultTitles[idx] ||
-                                            `Column ${idx + 1}`;
-                                    }
-                                }
-                            ],
-                            columns: [{
                                     data: 'unique_id',
+                                    orderable: true,
                                     name: 'unique_id',
-                                    className: 'px-6 py-4 text-sm text-gray-900 font-bold border-r border-gray-100'
+                                    className: 'font-semibold text-gray-900'
                                 },
                                 {
                                     data: 'employee_name',
+                                    orderable: true,
                                     name: 'employee_name',
-                                    className: 'px-6 py-4 text-sm text-gray-900 border-r border-gray-100'
+                                    className: 'all',
+                                    render: function(data, type) {
+                                        return type === 'display' ? employeeNameCell(data) : data;
+                                    }
                                 },
                                 {
                                     data: 'department',
                                     name: 'department',
-                                    className: 'px-6 py-4 text-sm text-gray-700 border-r border-gray-100'
+                                    render: function(data, type) {
+                                        return type === 'display' ? colorBadgeCell(data) : data;
+                                    }
                                 },
                                 {
                                     data: 'report_to',
-                                    name: 'report_to',
-                                    className: 'px-6 py-4 text-sm text-gray-700 border-r border-gray-100'
+                                    name: 'report_to'
                                 },
                                 {
                                     data: 'schedule',
-                                    name: 'schedule',
-                                    className: 'px-6 py-4 text-sm text-gray-700 border-r border-gray-100'
+                                    name: 'schedule'
                                 },
                                 {
                                     data: 'basic_salary',
                                     name: 'basic_salary',
-                                    className: 'px-6 py-4 text-sm text-gray-700 border-r border-gray-100'
-                                }, {
+                                    className: 'text-right'
+                                },
+                                {
                                     data: 'status',
                                     name: 'status',
-                                    className: 'px-6 py-4 text-sm text-gray-700 border-r border-gray-100',
-                                    render: function(data) {
-                                        if (data === 'Active') {
-                                            return '<span class="px-3 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-700">ACTIVE</span>';
-                                        } else {
-                                            return '<span class="px-3 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-700">NOT ACTIVE</span>';
-                                        }
+                                    render: function(data, type) {
+                                        if (type !== 'display') return data;
+                                        return data === 'Active' ?
+                                            '<span class="px-1.5 py-0.5 text-[11px] font-semibold rounded-full bg-green-100 text-green-800">Active</span>' :
+                                            '<span class="px-1.5 py-0.5 text-[11px] font-semibold rounded-full bg-red-100 text-red-800">Not Active</span>';
                                     }
                                 },
-
                                 {
                                     data: null,
                                     orderable: false,
                                     searchable: false,
-                                    className: 'px-6 py-4 text-center',
+                                    className: 'noVis all text-center',
                                     render: function(data, type, row) {
                                         return `
-                            <div class="flex items-center justify-center space-x-2">
-                                <button x-data @click.prevent="$dispatch('open-modal', 'edit-employee')"
-                                    class="inline-flex items-center px-3 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transform transition-all duration-200 hover:scale-105"
-                                    onclick="editFunction(${row.id});">
-                                    <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                            d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414
-                                            a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
-                                    </svg>
-                                    Edit
-                                </button>
-
-                                <button
-                                    class="inline-flex items-center px-3 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 transform transition-all duration-200 hover:scale-105"
-                                    onclick="deleteEmployee(${row.id});">
-                                    <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862
-                                            a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6
-                                            m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16">
-                                        </path>
-                                    </svg>
-                                    Delete
-                                </button>
-                            </div>`;
+                                            <div class="flex items-center justify-center gap-1.5">
+                                                <button type="button" title="Edit" class="row-btn edit"
+                                                    x-data @click.prevent="$dispatch('open-modal', 'edit-employee')"
+                                                    onclick="editFunction(${row.id});">
+                                                    <i class="fas fa-pen"></i>
+                                                </button>
+                                                <button type="button" title="Delete" class="row-btn cancel"
+                                                    onclick="deleteEmployee(${row.id});">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </div>`;
                                     }
                                 }
                             ],
                             language: {
-                                search: "_INPUT_",
-                                searchPlaceholder: "Search employees...",
+                                emptyTable: "No records available",
                                 info: "Showing _START_ to _END_ of _TOTAL_ entries",
+                                lengthMenu: "Rows per page _MENU_",
                                 paginate: {
                                     first: "First",
                                     last: "Last",
                                     next: "Next",
                                     previous: "Previous"
                                 }
-                            },
-                            initComplete: function() {
-                                this.api().columns().every(function() {
-                                    var column = this;
-                                    $('input', column.header()).on(
-                                        'keyup change clear',
-                                        function() {
-                                            if (column.search() !== this
-                                                .value) {
-                                                column.search(this.value)
-                                                    .draw();
-                                            }
-                                        });
-                                });
                             }
                         });
-
-                        // Adjust columns once loaded
-                        table.columns.adjust().draw();
+                        table.buttons().container().appendTo('#emp-toolbar-buttons');
                     }, 150);
                 },
                 error: function(xhr, status, error) {
                     console.error('Error:', error);
+                }
+            });
+        }
+
+        // The Unique ID the edit modal loaded with; offered back to whoever holds the new one (a swap)
+        let originalUniqueId = null;
+
+        function escapeHtml(value) {
+            return $('<div>').text(value ?? '').html();
+        }
+
+        function describeEmployee(emp) {
+            return emp.employee_name + (emp.department ? ' (' + emp.department + ')' : '');
+        }
+
+        // Warn before saving when the typed Unique ID already belongs to someone else.
+        // excludeId / unchangedId: the employee being edited and the ID it already has.
+        function checkUniqueIdConflict(inputId, noteId, excludeId, unchangedId) {
+            const note = $('#' + noteId);
+            const value = $('#' + inputId).val().trim();
+            if (value === '' || value === unchangedId) {
+                note.addClass('hidden').text('');
+                return;
+            }
+            $.get("{{ route('employees.checkUniqueId') }}", { unique_id: value, exclude_id: excludeId }, function(res) {
+                if ($('#' + inputId).val().trim() !== value) return; // typed on since
+                if (res.conflict) {
+                    note.text('Already used by ' + describeEmployee(res.employee) +
+                        ". You'll be asked to give them a new ID when you save.").removeClass('hidden');
+                } else {
+                    note.addClass('hidden').text('');
+                }
+            });
+        }
+
+        // The Add modal's suggested Unique ID; replaced on department change only while still in the field
+        let suggestedAddUniqueId = null;
+
+        function openAddEmployee() {
+            $('#employeeAddUniqueId').val('');
+            $('#addUniqueIdConflict').addClass('hidden').text('');
+            suggestedAddUniqueId = null;
+            suggestAddUniqueId();
+        }
+
+        function suggestAddUniqueId() {
+            const department = $('#employeeAddDepartment').val() || '';
+            $.get("{{ route('employees.suggestUniqueId') }}", { department: department }, function(res) {
+                if (($('#employeeAddDepartment').val() || '') !== department) return; // department changed since
+                const input = $('#employeeAddUniqueId');
+                const current = input.val().trim();
+                if (current === '' || current === suggestedAddUniqueId) {
+                    input.val(res.unique_id);
+                    $('#addUniqueIdConflict').addClass('hidden').text('');
+                }
+                suggestedAddUniqueId = res.unique_id;
+                updateAddUniqueIdHint();
+            });
+        }
+
+        function useSuggestedAddUniqueId() {
+            $('#employeeAddUniqueId').val(suggestedAddUniqueId);
+            $('#addUniqueIdConflict').addClass('hidden').text('');
+            updateAddUniqueIdHint();
+        }
+
+        function updateAddUniqueIdHint() {
+            const hint = $('#addUniqueIdHint');
+            const current = $('#employeeAddUniqueId').val().trim();
+            if (!suggestedAddUniqueId) {
+                hint.text('');
+            } else if (current === suggestedAddUniqueId) {
+                hint.html('<i class="fa-solid fa-wand-magic-sparkles mr-1"></i>Suggested next ID');
+            } else {
+                hint.html('Custom ID · <button type="button" class="text-blue-600 hover:underline" onclick="useSuggestedAddUniqueId()">Use suggested (' +
+                    escapeHtml(suggestedAddUniqueId) + ')</button>');
+            }
+        }
+
+        // The new Unique ID belongs to another employee: give them a new one (the old ID, i.e. a swap,
+        // by default) and save both together, or go back to the form
+        function resolveUniqueIdConflict(emp, newUniqueId) {
+            Swal.fire({
+                icon: 'warning',
+                title: 'Unique ID already in use',
+                width: '560px',
+                html: '<div class="text-left text-sm space-y-3">' +
+                    '<p><b>' + escapeHtml(newUniqueId) + '</b> belongs to another employee. To prevent two employees ' +
+                    'sharing an ID, they need a new one too.</p>' +
+                    '<div class="rounded-lg border border-gray-200 bg-gray-50 p-3">' +
+                    '<div><span class="text-gray-500">Name:</span> ' + escapeHtml(emp.employee_name) + '</div>' +
+                    '<div><span class="text-gray-500">Department:</span> ' + escapeHtml(emp.department || '—') + '</div>' +
+                    '<div><span class="text-gray-500">Status:</span> ' + escapeHtml(emp.status || '—') + '</div>' +
+                    '<div><span class="text-gray-500">Current ID:</span> ' + escapeHtml(emp.unique_id) + '</div>' +
+                    '</div>' +
+                    '<label for="conflictNewUniqueId" class="block font-semibold text-gray-700">New Unique ID for ' +
+                    escapeHtml(emp.employee_name) + '</label>' +
+                    '<input id="conflictNewUniqueId" class="swal2-input !m-0 !w-full" value="' + escapeHtml(originalUniqueId) + '">' +
+                    '<p class="text-xs text-gray-500">Leave as is to swap the two IDs.</p>' +
+                    '</div>',
+                showCancelButton: true,
+                confirmButtonText: 'Update both',
+                cancelButtonText: 'Cancel',
+                showLoaderOnConfirm: true,
+                allowOutsideClick: () => !Swal.isLoading(),
+                preConfirm: () => {
+                    const conflictNewUniqueId = $('#conflictNewUniqueId').val().trim();
+                    if (conflictNewUniqueId === '') {
+                        Swal.showValidationMessage('Enter a new Unique ID for ' + emp.employee_name);
+                        return false;
+                    }
+                    return new Promise((resolve) => {
+                        sendEmployeeUpdate({ conflict_employee_id: emp.id, conflict_new_unique_id: conflictNewUniqueId })
+                            .done(resolve)
+                            .fail((xhr) => {
+                                const json = xhr.responseJSON || {};
+                                const firstError = json.errors ? Object.values(json.errors)[0][0] : null;
+                                Swal.showValidationMessage(firstError || json.message || 'Failed to update employee data');
+                                resolve(false);
+                            });
+                    });
+                }
+            }).then((result) => {
+                if (result.isConfirmed && result.value) {
+                    employeeUpdated();
+                } else if (result.isDismissed) {
+                    window.dispatchEvent(new CustomEvent('open-modal', { detail: 'edit-employee' })); // back to the form, edits intact
                 }
             });
         }
@@ -528,23 +673,26 @@
                     let firstName = "";
                     let lastName = "";
 
+                    // Stored as "LAST, FIRST": the part before the first comma is the last name
                     if (fullName.includes(",")) {
-                        const parts = fullName.split(",");
-                        firstName = parts[0].trim();
-                        lastName = parts[1].trim();
+                        const comma = fullName.indexOf(",");
+                        lastName = fullName.slice(0, comma).trim();
+                        firstName = fullName.slice(comma + 1).trim();
                     } else {
-                        firstName = fullName;
+                        lastName = fullName;
                     }
 
                     console.log(data);
                     // Populate modal fields with employee data
                     $('#employeeUniqueId').val(data.unique_id);
+                    originalUniqueId = data.unique_id;
+                    $('#uniqueIdConflict').addClass('hidden').text('');
                     $('#employeeFirstName').val(firstName);
                     $('#employeeLastName').val(lastName);
                     $('#basicSalary').val(data.basic_salary);
                     $('#department').val(data.department);
                     $('#report_to').val(data.report_to);
-                    $('#schedule').val(data.schedule);
+                    setScheduleInputs('schedule', data.schedule);
                     $('#employeeEditStatus').val(data.status ?? 'Not Active');
                     // Open the modal
                     window.dispatchEvent(new Event('open-modal'));
@@ -555,48 +703,58 @@
             });
         }
 
-        function updateFunction() {
-            let employeeUniqueId = $('#employeeUniqueId').val();
+        // PUT the edit form; `extra` carries the conflict resolution when the new Unique ID was taken
+        function sendEmployeeUpdate(extra) {
             let employeeFirstName = $('#employeeFirstName').val();
             let employeeLastName = $('#employeeLastName').val();
-            let employeeName = employeeFirstName + ', ' + employeeLastName;
-            let basicSalary = $('#basicSalary').val();
-            let department = $('#department').val();
-            let report_to = $('#report_to').val();
-            let schedule = $('#schedule').val();
-            let employeeEditStatus = $('#employeeEditStatus').val();
-            $.ajax({
+            let schedule = readScheduleInputs('schedule');
+            if (schedule === null) return null;
+            return $.ajax({
                 url: `{{ route('employees.edit', ['id' => ':id']) }}`.replace(':id', globalID),
                 type: 'PUT',
                 dataType: 'json',
-                data: {
-                    unique_id: employeeUniqueId,
-                    employee_name: employeeName,
-                    basic_salary: basicSalary,
-                    department: department,
-                    report_to: report_to,
+                data: Object.assign({
+                    unique_id: $('#employeeUniqueId').val().trim(),
+                    employee_name: employeeLastName.trim() + ', ' + employeeFirstName.trim(), // "LAST, FIRST"
+                    basic_salary: $('#basicSalary').val(),
+                    department: $('#department').val(),
+                    report_to: $('#report_to').val(),
                     schedule: schedule,
-                    status: employeeEditStatus,
+                    status: $('#employeeEditStatus').val(),
                     _token: "{{ csrf_token() }}"
-                },
-                success: function(response) {
-                    Swal.fire({
-                        position: "center",
-                        icon: "success",
-                        title: "Employee updated successfully!",
-                        showConfirmButton: false,
-                        timer: 1500,
-                        width: "500px"
-                    });
-
-                    $('#employeeTable').DataTable().ajax.reload();
-                    window.dispatchEvent(new Event('close-modal'));
-                },
-                error: function(xhr, status, error) {
-                    console.error('Error updating employee data:', error);
-                    alert('Failed to update employee data');
-                }
+                }, extra || {})
             });
+        }
+
+        function employeeUpdated() {
+            Swal.fire({
+                position: "center",
+                icon: "success",
+                title: "Employee updated successfully!",
+                showConfirmButton: false,
+                timer: 1500,
+                width: "500px"
+            });
+
+            $('#employeeTable').DataTable().ajax.reload();
+            window.dispatchEvent(new Event('close-modal'));
+        }
+
+        function updateFunction() {
+            const request = sendEmployeeUpdate();
+            if (!request) return;
+            request
+                .done(employeeUpdated)
+                .fail(function(xhr, status, error) {
+                    const json = xhr.responseJSON || {};
+                    if (xhr.status === 409 && json.code === 'unique_id_taken') {
+                        resolveUniqueIdConflict(json.employee, $('#employeeUniqueId').val().trim());
+                        return;
+                    }
+                    console.error('Error updating employee data:', error);
+                    const firstError = json.errors ? Object.values(json.errors)[0][0] : null;
+                    Swal.fire('Error', firstError || json.message || 'Failed to update employee data', 'error');
+                });
         }
 
         function deleteEmployee(id) {
@@ -618,78 +776,131 @@
                             _token: "{{ csrf_token() }}"
                         },
                         success: function(response) {
-                            location.reload();
+                            Swal.fire({
+                                title: "Deleted!",
+                                text: "The employee has been deleted.",
+                                icon: "success"
+                            }).then(() => location.reload());
                         },
                         error: function(xhr) {
-                            alert('An error occurred: ' + xhr.responseText);
+                            const message = (xhr.responseJSON && xhr.responseJSON.message) || xhr.responseText;
+                            Swal.fire('Cannot delete', message, 'error');
                         }
-                    });
-                    Swal.fire({
-                        title: "Deleted!",
-                        text: "Your file has been deleted.",
-                        icon: "success"
                     });
                 }
             });
         }
 
-        function addEmployee() {
-            let employeeAddUniqueId = $('#employeeAddUniqueId').val();
-            let employeeAddFirstName = $('#employeeAddFirstName').val();
-            let employeeAddLastName = $('#employeeAddLastName').val();
-            let employeeAddDepartment = $('#employeeAddDepartment').val();
-            let employeeAddSchedule = $('#employeeAddSchedule').val();
-            let employeeAddImmediateSupervisor = $('#employeeAddImmediateSupervisor').val();
-            let basicAddSalary = $('#basicAddSalary').val();
-            let employeeAddStatus = $('#employeeAddStatus').val();
-
-
-            $.ajax({
+        // POST the Add form. `overrides` replaces the Unique ID or carries the conflict resolution.
+        function sendAddEmployee(overrides) {
+            let employeeAddSchedule = readScheduleInputs('employeeAddSchedule');
+            if (employeeAddSchedule === null) return null;
+            return $.ajax({
                 url: "{{ route('employees.store') }}",
                 type: 'POST',
-                data: {
-                    employeeAddUniqueId: employeeAddUniqueId,
-                    employeeAddFirstName: employeeAddFirstName,
-                    employeeAddLastName: employeeAddLastName,
-                    employeeAddDepartment: employeeAddDepartment,
+                dataType: 'json',
+                data: Object.assign({
+                    employeeAddUniqueId: $('#employeeAddUniqueId').val().trim(),
+                    employeeAddFirstName: $('#employeeAddFirstName').val(),
+                    employeeAddLastName: $('#employeeAddLastName').val(),
+                    employeeAddDepartment: $('#employeeAddDepartment').val(),
                     employeeAddSchedule: employeeAddSchedule,
-                    employeeAddImmediateSupervisor: employeeAddImmediateSupervisor,
-                    basicAddSalary: basicAddSalary,
-                    employeeAddStatus: employeeAddStatus,
+                    employeeAddImmediateSupervisor: $('#employeeAddImmediateSupervisor').val(),
+                    basicAddSalary: $('#basicAddSalary').val(),
+                    employeeAddStatus: $('#employeeAddStatus').val(),
                     _token: "{{ csrf_token() }}"
-                },
-                success: function(response) {
-                    Swal.fire({
-                        position: "center",
-                        icon: "success",
-                        title: response.message,
-                        showConfirmButton: false,
-                        timer: 1500,
-                        width: "500px"
-                    });
-                    window.dispatchEvent(new Event('close'));
-                    $('#employeeTable').DataTable().ajax.reload();
-                },
-                error: function(xhr) {
-                    if (xhr.status === 422) {
-                        const errors = xhr.responseJSON.errors;
-                        let errorMessage = '';
-                        for (const key in errors) {
-                            if (errors.hasOwnProperty(key)) {
-                                errorMessage += errors[key].join(', ') + '\n';
-                            }
-                        }
-                        Swal.fire({
-                            position: "center",
-                            icon: "error",
-                            title: errorMessage,
-                            showConfirmButton: false,
-                            timer: 5000,
-                            width: "500px"
-                        });
-                    } else {
-                        alert('An error occurred. Please try again.');
+                }, overrides || {})
+            });
+        }
+
+        function employeeAdded(response) {
+            Swal.fire({
+                position: "center",
+                icon: "success",
+                title: response.message,
+                showConfirmButton: false,
+                timer: 1500,
+                width: "500px"
+            });
+            window.dispatchEvent(new Event('close'));
+            $('#employeeTable').DataTable().ajax.reload();
+        }
+
+        function requestErrorMessage(xhr, fallback) {
+            const json = xhr.responseJSON || {};
+            const firstError = json.errors ? Object.values(json.errors)[0][0] : null;
+            return firstError || json.message || fallback;
+        }
+
+        function addEmployee() {
+            const request = sendAddEmployee();
+            if (!request) return;
+            request
+                .done(employeeAdded)
+                .fail(function(xhr) {
+                    const json = xhr.responseJSON || {};
+                    if (xhr.status === 409 && json.code === 'unique_id_taken') {
+                        resolveAddUniqueIdConflict(json, $('#employeeAddUniqueId').val().trim());
+                        return;
                     }
+                    Swal.fire('Error', requestErrorMessage(xhr, 'Failed to add employee'), 'error');
+                });
+        }
+
+        // The Unique ID typed in the Add form belongs to someone: use the next free ID for the new
+        // employee, or give the current holder a new ID and keep this one. Cancel goes back to the form.
+        function resolveAddUniqueIdConflict(conflict, takenId) {
+            const emp = conflict.employee;
+            const submit = (overrides) => new Promise((resolve) => {
+                sendAddEmployee(overrides)
+                    .done(resolve)
+                    .fail((xhr) => {
+                        Swal.showValidationMessage(requestErrorMessage(xhr, 'Failed to add employee'));
+                        resolve(false);
+                    });
+            });
+
+            Swal.fire({
+                icon: 'warning',
+                title: 'Unique ID already in use',
+                width: '600px',
+                html: '<div class="text-left text-sm space-y-3">' +
+                    '<p><b>' + escapeHtml(takenId) + '</b> belongs to another employee. To prevent two employees ' +
+                    'sharing an ID, either use the next free ID for the new employee, or give this employee a new one.</p>' +
+                    '<div class="rounded-lg border border-gray-200 bg-gray-50 p-3">' +
+                    '<div><span class="text-gray-500">Name:</span> ' + escapeHtml(emp.employee_name) + '</div>' +
+                    '<div><span class="text-gray-500">Department:</span> ' + escapeHtml(emp.department || '—') + '</div>' +
+                    '<div><span class="text-gray-500">Status:</span> ' + escapeHtml(emp.status || '—') + '</div>' +
+                    '<div><span class="text-gray-500">Current ID:</span> ' + escapeHtml(emp.unique_id) + '</div>' +
+                    '</div>' +
+                    '<label for="conflictAddNewUniqueId" class="block font-semibold text-gray-700">New Unique ID for ' +
+                    escapeHtml(emp.employee_name) + ' <span class="font-normal text-gray-500">(only if you keep ' +
+                    escapeHtml(takenId) + ' for the new employee)</span></label>' +
+                    '<input id="conflictAddNewUniqueId" class="swal2-input !m-0 !w-full" value="' + escapeHtml(conflict.suggested) + '">' +
+                    '</div>',
+                showDenyButton: true,
+                showCancelButton: true,
+                confirmButtonText: 'Use ' + escapeHtml(conflict.suggested) + ' for the new employee',
+                denyButtonText: 'Give ' + escapeHtml(emp.employee_name) + ' the new ID',
+                denyButtonColor: '#d97706',
+                cancelButtonText: 'Cancel',
+                showLoaderOnConfirm: true,
+                showLoaderOnDeny: true,
+                allowOutsideClick: () => !Swal.isLoading(),
+                preConfirm: () => submit({ employeeAddUniqueId: conflict.suggested }),
+                preDeny: () => {
+                    const newId = $('#conflictAddNewUniqueId').val().trim();
+                    if (newId === '') {
+                        Swal.showValidationMessage('Enter a new Unique ID for ' + emp.employee_name);
+                        return false;
+                    }
+                    return submit({ conflict_employee_id: emp.id, conflict_new_unique_id: newId });
+                }
+            }).then((result) => {
+                if ((result.isConfirmed || result.isDenied) && result.value) {
+                    employeeAdded(result.value);
+                } else if (result.isDismissed) {
+                    window.dispatchEvent(new CustomEvent('open-modal', { detail: 'add-employee' })); // back to the form, entries intact
                 }
             });
         }
@@ -701,92 +912,4 @@
         });
     </script>
 
-    <style>
-        /* Custom DataTables Styling */
-        #employeeTable_wrapper .dataTables_filter input {
-            padding: 0.75rem 1rem;
-            border: 1px solid #d1d5db;
-            border-radius: 0.5rem;
-            font-size: 0.875rem;
-            width: 100%;
-            max-width: 250px;
-            background: white;
-            transition: all 0.2s;
-        }
-
-        #employeeTable_wrapper .dataTables_filter input:focus {
-            outline: none;
-            border-color: #3b82f6;
-            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-        }
-
-        #employeeTable_wrapper .dataTables_length select {
-            padding: 0.75rem;
-            border-radius: 0.5rem;
-            border: 1px solid #d1d5db;
-            font-size: 0.875rem;
-            background: white;
-            transition: all 0.2s;
-        }
-
-        #employeeTable_wrapper .dataTables_length select:focus {
-            outline: none;
-            border-color: #3b82f6;
-            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-        }
-
-        /* Table row hover effects */
-        #employeeTable tbody tr:hover {
-            background-color: #f8fafc;
-            transform: translateY(-1px);
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-            transition: all 0.2s ease;
-        }
-
-        /* DataTables pagination styling */
-        .dataTables_paginate .paginate_button {
-            padding: 0.5rem 1rem;
-            margin: 0 0.25rem;
-            border-radius: 0.375rem;
-            border: 1px solid #d1d5db;
-            background: white;
-            color: #374151;
-            transition: all 0.2s;
-        }
-
-        .dataTables_paginate .paginate_button:hover {
-            background: #f3f4f6;
-            border-color: #9ca3af;
-        }
-
-        .dataTables_paginate .paginate_button.current {
-            background: #3b82f6;
-            color: white;
-            border-color: #3b82f6;
-        }
-
-        .dataTables_paginate .paginate_button.current:hover {
-            background: #2563eb;
-            border-color: #2563eb;
-        }
-
-        /* Info and length menu styling */
-        .dataTables_info,
-        .dataTables_length {
-            color: #6b7280;
-            font-size: 0.875rem;
-        }
-
-        /* Responsive table improvements */
-        @media (max-width: 768px) {
-            #employeeTable_wrapper .dataTables_filter input {
-                max-width: 100%;
-                margin-bottom: 1rem;
-            }
-
-            .dataTables_length {
-                margin-bottom: 1rem;
-            }
-        }
-    </style>
 </x-app-layout>

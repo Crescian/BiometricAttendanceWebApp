@@ -1,98 +1,4 @@
 <x-app-layout>
-    <style>
-        .loader-overlay {
-            position: fixed;
-            /* cover the whole screen */
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.5);
-            /* dim background */
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            z-index: 9999;
-            /* on top of other content */
-        }
-
-        .loader {
-            position: relative;
-            width: 2.5em;
-            height: 2.5em;
-            transform: rotate(165deg);
-            z-index: 9999;
-        }
-
-        .loader:before,
-        .loader:after {
-            content: "";
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            display: block;
-            width: 0.5em;
-            height: 0.5em;
-            border-radius: 0.25em;
-            transform: translate(-50%, -50%);
-        }
-
-        .loader:before {
-            animation: before8 2s infinite;
-        }
-
-        .loader:after {
-            animation: after6 2s infinite;
-        }
-
-        @keyframes before8 {
-            0% {
-                width: 0.5em;
-                box-shadow: 1em -0.5em rgba(225, 20, 98, 0.75), -1em 0.5em rgba(111, 202, 220, 0.75);
-            }
-
-            35% {
-                width: 2.5em;
-                box-shadow: 0 -0.5em rgba(225, 20, 98, 0.75), 0 0.5em rgba(111, 202, 220, 0.75);
-            }
-
-            70% {
-                width: 0.5em;
-                box-shadow: -1em -0.5em rgba(225, 20, 98, 0.75), 1em 0.5em rgba(111, 202, 220, 0.75);
-            }
-
-            100% {
-                box-shadow: 1em -0.5em rgba(225, 20, 98, 0.75), -1em 0.5em rgba(111, 202, 220, 0.75);
-            }
-        }
-
-        @keyframes after6 {
-            0% {
-                height: 0.5em;
-                box-shadow: 0.5em 1em rgba(61, 184, 143, 0.75), -0.5em -1em rgba(233, 169, 32, 0.75);
-            }
-
-            35% {
-                height: 2.5em;
-                box-shadow: 0.5em 0 rgba(61, 184, 143, 0.75), -0.5em 0 rgba(233, 169, 32, 0.75);
-            }
-
-            70% {
-                height: 0.5em;
-                box-shadow: 0.5em -1em rgba(61, 184, 143, 0.75), -0.5em 1em rgba(233, 169, 32, 0.75);
-            }
-
-            100% {
-                box-shadow: 0.5em 1em rgba(61, 184, 143, 0.75), -0.5em -1em rgba(233, 169, 32, 0.75);
-            }
-        }
-
-        .loader {
-            position: absolute;
-            top: calc(50% - 1.25em);
-            left: calc(50% - 1.25em);
-        }
-    </style>
 
     <x-slot name="header">
         <h2 class="font-semibold text-xl text-gray-800 leading-tight">
@@ -108,9 +14,6 @@
             <p class="text-gray-600 text-center mt-2">
                 Generate a detailed report of your data with a single click.
             </p>
-            <div class="loader-overlay" id="loaderOverlay">
-                <div class="loader"></div>
-            </div>
             <div class="mt-6 flex justify-center">
                 <button x-data @click.prevent="$dispatch('open-modal', 'finalizeModal')"
                     class="flex items-center gap-2 px-5 py-3 bg-green-500 hover:bg-green-600 text-white font-semibold rounded-md shadow-md">
@@ -124,10 +27,10 @@
         </div>
     </div> --}}
     {{-- <button x-data @click.prevent="$dispatch('open-modal', 'finalize')" onclick="GenerateCSVreportFiltered();" --}}
-    <div class="py-12 flex justify-center">
+    <div class="py-6 flex justify-center">
         <div class="max-w-xl w-full bg-white border border-gray-200 rounded-2xl shadow-lg p-8">
             <!-- Header -->
-            <h2 class="text-2xl font-bold text-gray-900 text-center flex items-center justify-center gap-2">
+            <h2 class="text-xl font-semibold text-gray-900 text-center flex items-center justify-center gap-2">
                 <i class="fas fa-chart-bar text-green-600"></i> Final Report Generation
             </h2>
 
@@ -138,10 +41,6 @@
                 <span class="font-semibold text-gray-800">Leaves</span>.
             </p>
 
-            <!-- Optional loader overlay (hidden by default) -->
-            <div class="loader-overlay hidden" id="loaderOverlay">
-                <div class="loader"></div>
-            </div>
 
             <!-- Generate Button -->
             <div class="mt-8 flex justify-center">
@@ -167,6 +66,23 @@
 
             <!-- Container for Displaying Dates -->
             <div id="datesContainer" class="text-sm text-gray-600 mb-4"></div>
+
+            <!-- Payroll Period: records from every biometric upload dated in this range are included -->
+            <div class="grid grid-cols-2 gap-3 mb-4">
+                <div>
+                    <label for="payroll-from" class="block text-sm font-medium text-gray-700 mb-1">Payroll From</label>
+                    <input id="payroll-from" type="date" value="{{ $period['start'] }}"
+                        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500">
+                </div>
+                <div>
+                    <label for="payroll-to" class="block text-sm font-medium text-gray-700 mb-1">Payroll To</label>
+                    <input id="payroll-to" type="date" value="{{ $period['end'] }}"
+                        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500">
+                </div>
+                <p class="col-span-2 text-xs text-gray-500">
+                    Attendance from all biometric uploads within these dates is included.
+                </p>
+            </div>
 
             <!-- Employee Data Processing Section -->
             <div id="processContainer" class="space-y-2 bg-gray-50 border border-gray-200 rounded-xl p-4 shadow-inner">
@@ -200,7 +116,16 @@
     </x-modal>
 
     <script>
-        $('#loaderOverlay').hide();
+        // Busy state lives on the button so it never covers the SweetAlert dialogs.
+        function setGenerating(on) {
+            $('#generateReportBtn')
+                .prop('disabled', on)
+                .toggleClass('opacity-75 cursor-wait', on)
+                .html(on ?
+                    '<i class="fas fa-spinner fa-spin mr-2"></i> Generating…' :
+                    '<i class="fas fa-file-export mr-2"></i> Generate Report Ready');
+        }
+
 
         function processStep(currentIcon, nextIcon, callback) {
             // Simulate loading
@@ -266,39 +191,49 @@
             });
         }
 
-        function finalizeApprovedEntries() {
+        function payrollPeriod() {
+            return {
+                period_start: $('#payroll-from').val(),
+                period_end: $('#payroll-to').val()
+            };
+        }
+
+        // Generates the payroll file + DTR, loads it into csvimports, then calls onDone(result).
+        function finalizeApprovedEntries(onDone = null) {
             $.ajax({
                 url: "{{ route('report.generation') }}",
                 method: 'POST',
                 headers: {
                     'X-CSRF-TOKEN': '{{ csrf_token() }}'
                 },
-                processData: false,
-                contentType: false,
+                data: payrollPeriod(),
                 success: result => {
-                    uploadCsvData(result.biometric_imports_id);
+                    uploadCsvData(() => onDone && onDone(result));
                 },
                 error: (xhr, status, error) => {
                     console.error('Error:', error);
+                    setGenerating(false);
                     const errorData = xhr.responseJSON || {};
-                    alert(`Error: ${errorData.message || 'An error occurred'}`);
+                    Swal.fire('Report generation failed', errorData.error || errorData.message || 'An error occurred', 'error');
                 }
             });
         }
 
-        function uploadCsvData(biometricImportsId) {
+        function uploadCsvData(onDone = null) {
             $.ajax({
                 url: "{{ route('import.csv') }}",
                 type: 'POST',
                 headers: {
                     'X-CSRF-TOKEN': '{{ csrf_token() }}'
                 },
-                data: {
-                    biometric_imports_id: biometricImportsId
+                data: payrollPeriod(),
+                success: result => {
+                    if (onDone) onDone();
                 },
-                success: result => {},
                 error: (xhr, status, error) => {
                     console.error('Error:', error);
+                    setGenerating(false);
+                    Swal.fire('Error', 'The payroll file was generated but could not be loaded. Please try again.', 'error');
                 }
             });
         }
@@ -329,47 +264,75 @@
         // }
 
         function GenerateCSVreportFiltered(val) {
-            $('#loaderOverlay').show();
-            finalizeApprovedEntries();
+            const period = payrollPeriod();
+            if (!period.period_start || !period.period_end) {
+                Swal.fire('Payroll period', 'Please choose the Payroll From and To dates.', 'warning');
+                return;
+            }
+            if (period.period_end < period.period_start) {
+                Swal.fire('Payroll period', 'Payroll To must be on or after Payroll From.', 'warning');
+                return;
+            }
+            setGenerating(true);
+            // Downloads start only after generation finished, so they never pick up the previous run's files.
+            finalizeApprovedEntries(result => warnMissingDates(result).then(() => downloadReports(val, result)));
+        }
 
+        // Dates in the chosen period with no attendance at all usually mean an upload is missing.
+        function warnMissingDates(result) {
+            const missing = (result && result.missing_dates) || [];
+            if (!missing.length) return Promise.resolve();
+
+            const period = result.period || {};
+            const uploads = (result.imports || []).map(i => i.title || `#${i.id}`).join(', ');
+            return Swal.fire({
+                icon: 'warning',
+                title: 'Dates without attendance',
+                html: `${missing.length} date(s) in the payroll period <strong>${period.start} to ${period.end}</strong> ` +
+                    `have no attendance records. Check that the biometric file for these dates was uploaded.` +
+                    `<br><br><small>Dates: ${missing.join(', ')}</small>` +
+                    (uploads ? `<br><br><small>Included uploads: ${uploads}</small>` : ''),
+                confirmButtonText: 'Continue to download'
+            });
+        }
+
+        function downloadReports(val, result = {}) {
             const authUserId = {{ Auth::check() ? Auth::id() : 'null' }};
             const userRole = "{{ Auth::check() ? Auth::user()->role : '' }}";
-            console.log('Authenticated User ID:', authUserId);
-            console.log('User Role:', userRole);
-            if (userRole === 'admin') {
-                setTimeout(() => {
-                    let link1 = document.createElement('a');
-                    link1.href = '{{ route('download.payrollfile') }}';
-                    link1.download = 'PayrollFile.csv';
-                    link1.click();
 
-                    setTimeout(() => {
-                        let link2 = document.createElement('a');
-                        link2.href = '{{ route('download.reportdtr') }}';
-                        link2.download = 'reportdtr.xlsx';
-                        link2.click();
-                    }, 1000);
-                }, 1000);
+            const download = (href, name) => {
+                let link = document.createElement('a');
+                link.href = href;
+                link.download = name;
+                link.click();
+            };
+
+            if (userRole === 'admin') {
+                download('{{ route('download.payrollfile') }}', 'PayrollFile.csv');
+                // Small gap so the browser doesn't block the second download.
+                setTimeout(() => download('{{ route('download.reportdtr') }}', 'reportdtr.xlsx'), 800);
             } else if (authUserId === 7) {
-                setTimeout(() => {
-                    let link = document.createElement('a');
-                    link.href = '{{ route('download.security') }}';
-                    link.download = 'security.xlsx';
-                    link.click();
-                }, 1000);
+                if (result.security_guards > 0) {
+                    download('{{ route('download.security') }}', 'security.xlsx');
+                } else {
+                    Swal.fire('Security report', 'No security guard attendance was found for this payroll period.', 'info');
+                }
             } else {
                 console.log('No downloads allowed for this user.');
             }
 
+            // The payroll CSV export is admin-only (it has names and basic pay)
+            if (userRole !== 'admin') {
+                setGenerating(false);
+                return;
+            }
 
             $.ajax({
                 url: '{{ route('export.csv') }}',
                 type: 'GET',
-                data: {
-                    entry_date: val // Passing the entry_date to the controller
-                },
+                data: payrollPeriod(),
                 success: function(response) {
-                    $('#loaderOverlay').hide();
+                    setGenerating(false);
 
                     // Create a Blob from the CSV data
                     var blob = new Blob([response], {
@@ -382,6 +345,7 @@
                     link.click();
                 },
                 error: function(xhr, status, error) {
+                    setGenerating(false);
                     console.error('Error exporting CSV:', error);
                 }
             });

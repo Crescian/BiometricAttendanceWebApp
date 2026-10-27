@@ -1,113 +1,86 @@
 <x-app-layout>
-    <div class="px-16 py-12"><!-- Row: Business Unit, Department, Company -->
-        <!-- ========== GRID CARDS ========== -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <!-- Business Unit -->
-            <div class="bg-white shadow-lg rounded-lg border border-gray-200 flex flex-col">
-                <div class="bg-white px-6 py-3 rounded-t-lg border-b border-gray-200 flex items-center justify-between">
-                    <h2 class="text-2xl font-bold text-gray-900 flex items-center space-x-2">
-                        <i class="fa-solid fa-building text-3xl" style="color: #8DE11A;"></i>
-                        <span>Business Unit</span>
-                    </h2>
-                    <button onclick="openModal('#businessUnitModal')"
-                        class="flex items-center px-4 py-2 bg-white text-green-600 font-semibold rounded-lg shadow-sm border border-green-600 hover:bg-green-50 transition">
-                        <i class="fa-solid fa-plus mr-2"></i> Add
-                    </button>
-                </div>
-                <div class="p-6 flex-1 overflow-x-auto">
-                    <table class="min-w-full divide-y divide-gray-200">
-                        <thead class="bg-gray-50">
-                            <tr>
-                                <th class="px-4 py-2 text-left text-sm font-semibold text-gray-700">Business Unit Name
-                                </th>
-                                <th class="px-4 py-2 text-left text-sm font-semibold text-gray-700">Head</th>
-                                <th class="px-4 py-2 text-center text-sm font-semibold text-gray-700">Action</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-gray-100 businessUnitMDetails">
-                            {{-- <tr>
-                                <td class="px-4 py-2 text-sm text-gray-800">Finance</td>
-                                <td class="px-4 py-2 text-sm text-gray-800">John Doe</td>
-                                <td class="px-4 py-2 text-center">
-                                    <button class="text-blue-600 hover:underline mx-1"
-                                        onclick="editModal('#businessUnitModal', 'Finance', 'John Doe')">Edit</button>
-                                    <button class="text-red-600 hover:underline mx-1">Delete</button>
-                                </td>
-                            </tr> --}}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+    <x-approval-table-assets />
 
-            <!-- Department -->
-            <div class="bg-white shadow-lg rounded-lg border border-gray-200 flex flex-col">
-                <div class="bg-white px-6 py-3 rounded-t-lg border-b border-gray-200 flex items-center justify-between">
-                    <h2 class="text-2xl font-bold text-gray-900 flex items-center space-x-2">
-                        <i class="fa-solid fa-sitemap text-3xl" style="color: #8DE11A;"></i>
-                        <span>Department</span>
-                    </h2>
-                    <button onclick="openModal('#departmentModal')"
-                        class="flex items-center px-4 py-2 bg-white text-green-600 font-semibold rounded-lg shadow-sm border border-green-600 hover:bg-green-50 transition">
-                        <i class="fa-solid fa-plus mr-2"></i> Add
-                    </button>
+    <div class="px-2 lg:px-4">
+        <!-- Page header + toolbar -->
+        <div class="flex flex-wrap items-center justify-between gap-3 px-4 pt-4 pb-3">
+            <h1 class="text-xl font-semibold text-gray-900">{{ __('Organization Structure') }}</h1>
+            <div class="flex flex-wrap items-center gap-2">
+                <button type="button" id="org-add-btn" onclick="openModal(orgTabs[orgActiveTab].modal)"
+                    class="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-white bg-green-600 rounded-md hover:bg-green-700 shadow-sm">
+                    <i class="fa-solid fa-plus"></i>
+                    <span id="org-add-label">Add business unit</span>
+                </button>
+                <div class="relative">
+                    <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i>
+                    <input id="org-search" type="search" placeholder="Search"
+                        class="w-48 pl-8 pr-3 py-1.5 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500">
                 </div>
-                <div class="p-6 flex-1 overflow-x-auto">
-                    <table class="min-w-full divide-y divide-gray-200">
-                        <thead class="bg-gray-50">
-                            <tr>
-                                <th class="px-4 py-2 text-left text-sm font-semibold text-gray-700">Department Name</th>
-                                <th class="px-4 py-2 text-left text-sm font-semibold text-gray-700">Department Head</th>
-                                <th class="px-4 py-2 text-center text-sm font-semibold text-gray-700">Action</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-gray-100 departmentDetails">
-                            {{-- <tr>
-                                <td class="px-4 py-2 text-sm text-gray-800">HR</td>
-                                <td class="px-4 py-2 text-sm text-gray-800">Jane Smith</td>
-                                <td class="px-4 py-2 text-center">
-                                    <button class="text-blue-600 hover:underline mx-1"
-                                        onclick="editModal('#departmentModal', 'HR', 'Jane Smith')">Edit</button>
-                                    <button class="text-red-600 hover:underline mx-1">Delete</button>
-                                </td>
-                            </tr> --}}
-                        </tbody>
-                    </table>
-                </div>
+                <div id="org-toolbar-bu" class="org-toolbar flex items-center gap-2"></div>
+                <div id="org-toolbar-company" class="org-toolbar hidden items-center gap-2"></div>
+                <div id="org-toolbar-department" class="org-toolbar hidden items-center gap-2"></div>
             </div>
+        </div>
 
-            <!-- Company -->
-            <div class="bg-white shadow-lg rounded-lg border border-gray-200 flex flex-col">
-                <div class="bg-white px-6 py-3 rounded-t-lg border-b border-gray-200 flex items-center justify-between">
-                    <h2 class="text-2xl font-bold text-gray-900 flex items-center space-x-2">
-                        <i class="fa-solid fa-city text-3xl" style="color: #8DE11A;"></i>
-                        <span>Company</span>
-                    </h2>
-                    <button onclick="openModal('#companyModal')"
-                        class="flex items-center px-4 py-2 bg-white text-green-600 font-semibold rounded-lg shadow-sm border border-green-600 hover:bg-green-50 transition">
-                        <i class="fa-solid fa-plus mr-2"></i> Add
-                    </button>
+        <!-- Table card -->
+        <div class="px-4 pb-4">
+            <div class="bg-white rounded-lg border border-gray-200 shadow-sm">
+                <x-status-tabs loader="showOrgTab" :tabs="[
+                    ['value' => 'bu', 'label' => 'Business Units', 'title' => 'Business Units', 'count' => 'bu-count', 'badge' => 'bg-gray-100 text-gray-700'],
+                    ['value' => 'company', 'label' => 'Companies', 'title' => 'Companies', 'count' => 'company-count', 'badge' => 'bg-gray-100 text-gray-700'],
+                    ['value' => 'department', 'label' => 'Departments', 'title' => 'Departments', 'count' => 'department-count', 'badge' => 'bg-gray-100 text-gray-700'],
+                ]" />
+
+                <div class="p-2 text-gray-900 org-panel" data-org-panel="bu">
+                    <div class="border border-gray-200 rounded-md overflow-hidden">
+                        <div class="overflow-x-auto">
+                            <table id="business-unit-table" class="org-table modern-table w-full text-sm">
+                                <thead>
+                                    <tr>
+                                        <th class="noVis" style="width: 2rem;"></th>
+                                        <th>Business Unit</th>
+                                        <th>Head</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
-                <div class="p-6 flex-1 overflow-x-auto">
-                    <table class="min-w-full divide-y divide-gray-200">
-                        <thead class="bg-gray-50">
-                            <tr>
-                                <th class="px-4 py-2 text-left text-sm font-semibold text-gray-700">Company Name</th>
-                                <th class="px-4 py-2 text-left text-sm font-semibold text-gray-700">Company Head</th>
-                                <th class="px-4 py-2 text-center text-sm font-semibold text-gray-700">Action</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-gray-100 companyDetails">
-                            {{-- <tr>
-                                <td class="px-4 py-2 text-sm text-gray-800">Leoniogroup Inc.</td>
-                                <td class="px-4 py-2 text-sm text-gray-800">Michael Reyes</td>
-                                <td class="px-4 py-2 text-center">
-                                    <button class="text-blue-600 hover:underline mx-1"
-                                        onclick="editModal('#companyModal', 'Leoniogroup Inc.', 'Michael Reyes')">Edit</button>
-                                    <button class="text-red-600 hover:underline mx-1">Delete</button>
-                                </td>
-                            </tr> --}}
-                        </tbody>
-                    </table>
+                <div class="p-2 text-gray-900 org-panel hidden" data-org-panel="company">
+                    <div class="border border-gray-200 rounded-md overflow-hidden">
+                        <div class="overflow-x-auto">
+                            <table id="company-table" class="org-table modern-table w-full text-sm">
+                                <thead>
+                                    <tr>
+                                        <th class="noVis" style="width: 2rem;"></th>
+                                        <th>Company</th>
+                                        <th>Company Head</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                <div class="p-2 text-gray-900 org-panel hidden" data-org-panel="department">
+                    <div class="border border-gray-200 rounded-md overflow-hidden">
+                        <div class="overflow-x-auto">
+                            <table id="department-table" class="org-table modern-table w-full text-sm">
+                                <thead>
+                                    <tr>
+                                        <th class="noVis" style="width: 2rem;"></th>
+                                        <th>Department</th>
+                                        <th>Department Head</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -132,7 +105,7 @@
                     <div class="flex justify-end space-x-2">
                         <button type="button" onclick="closeModal('#businessUnitModal')"
                             class="px-4 py-2 bg-gray-200 rounded-lg">Cancel</button>
-                        <button class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                        <button type="button" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
                             onclick="save('businessUnit');">Save</button>
                     </div>
                 </form>
@@ -170,7 +143,7 @@
                     <div class="flex justify-end space-x-2">
                         <button type="button" onclick="closeModal('#departmentModal')"
                             class="px-4 py-2 bg-gray-200 rounded-lg">Cancel</button>
-                        <button type="submit" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                        <button type="button" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
                             onclick="save('department');">Save</button>
                     </div>
                 </form>
@@ -203,7 +176,7 @@
                     <div class="flex justify-end space-x-2">
                         <button type="button" onclick="closeModal('#companyModal')"
                             class="px-4 py-2 bg-gray-200 rounded-lg">Cancel</button>
-                        <button type="submit" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                        <button type="button" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
                             onclick="save('company');">Save</button>
                     </div>
                 </form>
@@ -213,76 +186,110 @@
     </div>
 
     <!-- ========== jQuery Functions ========== -->
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script>
+        const orgTabs = {
+            bu: { table: '#business-unit-table', modal: '#businessUnitModal', add: 'Add business unit' },
+            company: { table: '#company-table', modal: '#companyModal', add: 'Add company' },
+            department: { table: '#department-table', modal: '#departmentModal', add: 'Add department' },
+        };
+        let orgActiveTab = 'bu';
+
         loadTables();
         getUsers();
 
-        function loadTables() {
-            // Helper to show badge if head is empty
-            function formatHead(head) {
-                if (!head || head.trim() === '') {
-                    return `<span class="px-2 py-1 bg-gray-200 text-gray-600 rounded-full text-xs">No Assigned</span>`;
-                }
-                return head;
-            }
+        // Header search filters all three tables
+        let orgSearchTimer;
+        $(document).on('input', '#org-search', function() {
+            clearTimeout(orgSearchTimer);
+            const term = this.value;
+            orgSearchTimer = setTimeout(function() {
+                Object.values(orgTabs).forEach(function(tab) {
+                    if ($.fn.DataTable.isDataTable(tab.table)) {
+                        $(tab.table).DataTable().search(term).draw();
+                    }
+                });
+            }, 350);
+        });
 
+        function showOrgTab(key) {
+            orgActiveTab = key;
+            $('.org-panel').addClass('hidden');
+            $(`[data-org-panel="${key}"]`).removeClass('hidden');
+            $('.org-toolbar').addClass('hidden').removeClass('flex');
+            $(`#org-toolbar-${key}`).removeClass('hidden').addClass('flex');
+            $('#org-add-label').text(orgTabs[key].add);
+            // A table laid out while hidden needs its widths recalculated once shown
+            if ($.fn.DataTable.isDataTable(orgTabs[key].table)) {
+                $(orgTabs[key].table).DataTable().columns.adjust().responsive.recalc();
+            }
+        }
+
+        // Head shown as a pill when empty
+        function headCell(head, type) {
+            if (type !== 'display') return head || '';
+            if (!head || String(head).trim() === '') {
+                return `<span class="px-1.5 py-0.5 text-[11px] font-semibold rounded-full bg-gray-200 text-gray-600">Not Assigned</span>`;
+            }
+            return personCell(head);
+        }
+
+        function orgActions(kind) {
+            return {
+                data: null,
+                orderable: false,
+                searchable: false,
+                className: 'noVis all text-center',
+                render: function(data, type, row) {
+                    return `
+                        <div class="flex items-center justify-center gap-1.5">
+                            <button type="button" title="Edit" class="row-btn edit" onclick="editOrgRow('${kind}', this)">
+                                <i class="fas fa-pen"></i>
+                            </button>
+                            <button type="button" title="Delete" class="row-btn cancel" onclick="deleteItems('${kind === 'bu' ? 'business_unit' : kind}', ${Number(row.id)})">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>`;
+                }
+            };
+        }
+
+        // Edit opens the modal pre-filled from the row's data (no names inlined into onclick)
+        function editOrgRow(kind, button) {
+            const row = $(orgTabs[kind].table).DataTable().row($(button).closest('tr')).data();
+            if (!row) return;
+            if (kind === 'bu') editModal('#businessUnitModal', row.name, row.head || '');
+            if (kind === 'company') editModal('#companyModal', row.name, row.head || '');
+            if (kind === 'department') editModal('#departmentModal', row.department_name, row.department_head || '');
+        }
+
+        function orgRows(response) {
+            return response.success && Array.isArray(response.data) ? response.data : [];
+        }
+
+        function loadTables() {
             // Load Business Units
             $.ajax({
                 url: "{{ route('business-unit.fetch') }}",
                 type: 'GET',
                 success: function(response) {
-                    let buTableBody = '';
-                    $('#comp_bu').html(''); // Clear existing options
-                    $('#comp_bu').append('<option value="">-- Select Business Unit --</option>');
-                    if (response.success && response.data.length > 0) {
-                        response.data.forEach(function(bu) {
-                            $('#comp_bu').append(`<option value="${bu.id}">${bu.name}</option>`);
-                            buTableBody += `
-                        <tr>
-                            <td class="px-4 py-2 text-sm text-gray-800">${bu.name}</td>
-                            <td class="px-4 py-2 text-sm text-gray-800">${formatHead(bu.head)}</td>
-                            <td class="px-4 py-2 text-center">
-                                <button class="text-blue-600 hover:underline mx-1" onclick="editModal('#businessUnitModal', '${bu.name}', '${bu.head || ''}')">Edit</button>
-                                <button class="text-red-600 hover:underline mx-1" onclick="deleteItems('business_unit','${bu.id}');">Delete</button>
-                            </td>
-                        </tr>`;
-                        });
-                    } else {
-                        buTableBody = `
-                    <tr>
-                        <td colspan="3" class="text-center text-gray-500 py-4">No Business Units found.</td>
-                    </tr>`;
-                    }
-                    $('.businessUnitMDetails').html(buTableBody);
-                },
-            });
-
-            // Load Departments
-            $.ajax({
-                url: "{{ route('department.fetch') }}",
-                type: 'GET',
-                success: function(response) {
-                    let deptTableBody = '';
-                    if (response.success && response.data.length > 0) {
-                        response.data.forEach(function(dept) {
-                            deptTableBody += `
-                        <tr>
-                            <td class="px-4 py-2 text-sm text-gray-800">${dept.department_name}</td>
-                            <td class="px-4 py-2 text-sm text-gray-800">${formatHead(dept.department_head_name)}</td>
-                            <td class="px-4 py-2 text-center">
-                                <button class="text-blue-600 hover:underline mx-1" onclick="editModal('#departmentModal', '${dept.department_name}', '${dept.department_head || ''}')">Edit</button>
-                                <button class="text-red-600 hover:underline mx-1" onclick="deleteItems('department','${dept.id}');">Delete</button>
-                            </td>
-                        </tr>`;
-                        });
-                    } else {
-                        deptTableBody = `
-                    <tr>
-                        <td colspan="3" class="text-center text-gray-500 py-4">No Departments found.</td>
-                    </tr>`;
-                    }
-                    $('.departmentDetails').html(deptTableBody);
+                    const rows = orgRows(response);
+                    $('#comp_bu').html('<option value="">-- Select Business Unit --</option>');
+                    rows.forEach(function(bu) {
+                        $('#comp_bu').append($('<option>').val(bu.id).text(bu.name));
+                    });
+                    $('#bu-count').text(rows.length);
+                    renderClientTable('#business-unit-table', {
+                        data: rows,
+                        reload: loadTables,
+                        toolbar: '#org-toolbar-bu',
+                        search: '#org-search',
+                        emptyText: 'No business units found.',
+                        columns: [
+                            { data: 'name', orderable: true, className: 'all font-semibold text-gray-900', render: $.fn.dataTable.render.text() },
+                            { data: 'head', render: (data, type) => headCell(data, type) },
+                            orgActions('bu')
+                        ]
+                    });
                 },
             });
 
@@ -291,30 +298,46 @@
                 url: "{{ route('company.fetch') }}",
                 type: 'GET',
                 success: function(response) {
-                    let compTableBody = '';
-                    $('#dept_company').html(''); // Clear existing options
-                    $('#dept_company').append('<option value="">-- Select Company --</option>');
-                    if (response.success && response.data.length > 0) {
-                        response.data.forEach(function(comp) {
-                            $('#dept_company').append(
-                                `<option value="${comp.id}">${comp.name}</option>`);
-                            compTableBody += `
-                        <tr>
-                            <td class="px-4 py-2 text-sm text-gray-800">${comp.name}</td>
-                            <td class="px-4 py-2 text-sm text-gray-800">${formatHead(comp.head)}</td>
-                            <td class="px-4 py-2 text-center">
-                                <button class="text-blue-600 hover:underline mx-1" onclick="editModal('#companyModal', '${comp.name}', '${comp.head || ''}')">Edit</button>
-                                <button class="text-red-600 hover:underline mx-1" onclick="deleteItems('company','${comp.id}');">Delete</button>
-                            </td>
-                        </tr>`;
-                        });
-                    } else {
-                        compTableBody = `
-                    <tr>
-                        <td colspan="3" class="text-center text-gray-500 py-4">No Companies found.</td>
-                    </tr>`;
-                    }
-                    $('.companyDetails').html(compTableBody);
+                    const rows = orgRows(response);
+                    $('#dept_company').html('<option value="">-- Select Company --</option>');
+                    rows.forEach(function(comp) {
+                        $('#dept_company').append($('<option>').val(comp.id).text(comp.name));
+                    });
+                    $('#company-count').text(rows.length);
+                    renderClientTable('#company-table', {
+                        data: rows,
+                        reload: loadTables,
+                        toolbar: '#org-toolbar-company',
+                        search: '#org-search',
+                        emptyText: 'No companies found.',
+                        columns: [
+                            { data: 'name', orderable: true, className: 'all font-semibold text-gray-900', render: $.fn.dataTable.render.text() },
+                            { data: 'head', render: (data, type) => headCell(data, type) },
+                            orgActions('company')
+                        ]
+                    });
+                },
+            });
+
+            // Load Departments
+            $.ajax({
+                url: "{{ route('department.fetch') }}",
+                type: 'GET',
+                success: function(response) {
+                    const rows = orgRows(response);
+                    $('#department-count').text(rows.length);
+                    renderClientTable('#department-table', {
+                        data: rows,
+                        reload: loadTables,
+                        toolbar: '#org-toolbar-department',
+                        search: '#org-search',
+                        emptyText: 'No departments found.',
+                        columns: [
+                            { data: 'department_name', orderable: true, className: 'all', render: (data, type) => type === 'display' ? colorBadgeCell(data) : data },
+                            { data: 'department_head_name', defaultContent: '', render: (data, type) => headCell(data, type) },
+                            orgActions('department')
+                        ]
+                    });
                 },
             });
         }
@@ -329,7 +352,6 @@
                         $('#dept_head').append('<option value="">-- Select Department Head --</option>');
 
                         $.each(response.data, function(index, user) {
-                            console.log(user); // This will now show the user object correctly
                             $('#dept_head').append(
                                 `<option value="${user.id}">${user.name}</option>`
                             );
@@ -394,9 +416,13 @@
                         timer: 1500,
                         width: "500px"
                     });
+                    loadTables();
                 },
-            })
-            loadTables();
+                error: function(xhr) {
+                    const message = (xhr.responseJSON && xhr.responseJSON.message) || 'Save failed.';
+                    Swal.fire('Could not save', message, 'error');
+                },
+            });
         }
 
         function deleteItems(type, id) {
@@ -436,6 +462,10 @@
                                 'success'
                             );
                             loadTables(); // reload the table after delete
+                        },
+                        error: function(xhr) {
+                            const message = (xhr.responseJSON && xhr.responseJSON.message) || 'Delete failed.';
+                            Swal.fire('Cannot delete', message, 'error');
                         }
                     });
                 }

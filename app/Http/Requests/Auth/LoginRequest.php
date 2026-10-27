@@ -2,9 +2,13 @@
 
 namespace App\Http\Requests\Auth;
 
+use App\Models\User;
+use App\Services\AuditLogger;
 use Illuminate\Auth\Events\Lockout;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -33,7 +37,9 @@ class LoginRequest extends FormRequest
     }
 
     /**
-     * Attempt to authenticate the request's credentials.
+     * Attempt to authenticate the request's credentials against the centralized
+     * org login (TicketingSystemVersion2 /api/login), then sign in the matching
+     * local user. Credentials themselves are never checked locally anymore.
      *
      * @throws \Illuminate\Validation\ValidationException
      */
@@ -41,15 +47,86 @@ class LoginRequest extends FormRequest
     {
         $this->ensureIsNotRateLimited();
 
-        if (! Auth::attempt($this->only('email', 'password'), $this->boolean('remember'))) {
-            RateLimiter::hit($this->throttleKey());
+        try {
+            $response = Http::acceptJson()
+                ->timeout(10)
+                ->post(rtrim(config('services.ticketing.url'), '/').'/login', [
+                    'email' => $this->input('email'),
+                    'password' => $this->input('password'),
+                ]);
+        } catch (ConnectionException $e) {
+            $this->auditFailure('authentication_service_unreachable', 'failure');
 
             throw ValidationException::withMessages([
-                'email' => trans('auth.failed'),
+                'email' => ['Unable to reach the authentication service right now. Please try again in a moment.'],
             ]);
         }
 
+        if ($response->failed()) {
+            RateLimiter::hit($this->throttleKey());
+
+            if ($response->status() === 429) {
+                $this->auditFailure('rate_limited_by_ticketing', 'denied');
+
+                throw ValidationException::withMessages([
+                    'email' => ['Too many login attempts. Please try again later.'],
+                ]);
+            }
+
+            $this->auditFailure('invalid_credentials', 'failure', ['ticketing_status' => $response->status()]);
+
+            throw ValidationException::withMessages([
+                'email' => [$response->json('message') ?: trans('auth.failed')],
+            ]);
+        }
+
+        $user = User::where('email', $response->json('user.email', $this->input('email')))->first();
+
+        if (! $user) {
+            RateLimiter::hit($this->throttleKey());
+            $this->auditFailure('not_registered', 'denied');
+
+            throw ValidationException::withMessages([
+                'email' => ['Your account is valid but is not registered in the Attendance System. Please contact your administrator.'],
+            ]);
+        }
+
+        if ($user->active === false) {
+            $this->auditFailure('account_inactive', 'denied', [], $user);
+
+            throw ValidationException::withMessages([
+                'email' => ['This account is inactive. Please contact an administrator.'],
+            ]);
+        }
+
+        Auth::login($user, $this->boolean('remember'));
+
         RateLimiter::clear($this->throttleKey());
+    }
+
+    /**
+     * Record a failed sign-in with its reason. The attempted email is kept; the password never is.
+     */
+    private function auditFailure(string $reason, string $outcome, array $extra = [], ?User $user = null): void
+    {
+        $labels = [
+            'authentication_service_unreachable' => 'authentication service unreachable',
+            'rate_limited_by_ticketing' => 'too many attempts (authentication service)',
+            'rate_limited' => 'too many attempts',
+            'invalid_credentials' => 'wrong email or password',
+            'not_registered' => 'account not registered in the Attendance System',
+            'account_inactive' => 'account is inactive',
+        ];
+
+        AuditLogger::record('auth.login.failed', [
+            'category' => 'auth',
+            'action' => 'login',
+            'outcome' => $outcome,
+            'actor' => $user,
+            'actor_email' => $user ? null : Str::lower((string) $this->input('email')),
+            'description' => 'Failed sign-in: '.($labels[$reason] ?? $reason),
+            'metadata' => array_merge(['reason' => $reason], $extra),
+        ]);
     }
 
     /**
@@ -66,6 +143,7 @@ class LoginRequest extends FormRequest
         event(new Lockout($this));
 
         $seconds = RateLimiter::availableIn($this->throttleKey());
+        $this->auditFailure('rate_limited', 'denied', ['locked_for_seconds' => $seconds]);
 
         throw ValidationException::withMessages([
             'email' => trans('auth.throttle', [

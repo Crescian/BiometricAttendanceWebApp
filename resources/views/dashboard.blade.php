@@ -1,128 +1,144 @@
 <x-app-layout>
     <!-- Dashboard Header -->
-    <div class="px-16 py-8">
-        <h1 class="text-4xl font-semibold text-gray-900 tracking-tight">
-            Dashboard
-        </h1>
-        <p class="text-gray-500 text-lg mt-2">
+    <div class="px-6 pt-4 pb-2 flex flex-wrap items-baseline gap-x-3">
+        <h1 class="text-xl font-semibold text-gray-900 tracking-tight">Dashboard</h1>
+        <p class="text-sm text-gray-500">
             Welcome back, <span class="text-emerald-600 font-medium">{{ Auth::user()->name ?? 'User' }}</span>.
             Here’s an overview of your workspace today.
         </p>
     </div>
 
-    <div class="px-16 py-2">
+    <!-- Both rows share the screen height on large screens, so the whole dashboard fits in one view -->
+    <div class="px-6 pb-4 flex flex-col gap-4 lg:h-[calc(100vh-7rem)] lg:min-h-[34rem]">
         <!-- Row 1 -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 lg:flex-1 lg:min-h-0">
 
-            <div class="bg-white shadow-lg rounded-lg border border-gray-200 flex flex-col h-auto">
+            <div class="bg-white shadow rounded-lg border border-gray-200 flex flex-col min-h-0">
                 <!-- Card Header -->
-                <div class="bg-white px-6 py-3 rounded-t-lg border-b border-gray-200">
-                    <h2 class="text-2xl font-bold text-gray-900">
-                        <i class="fa-solid fa-square-binary text-3xl" style="color: #8DE11A;"></i>
-                        Today <span id="todayDate"></span>
+                <div class="px-4 py-2 border-b border-gray-200 flex items-center justify-between gap-2">
+                    <h2 class="text-sm font-semibold text-gray-900 flex items-center gap-2 truncate">
+                        <i class="fa-solid fa-square-binary text-base" style="color: #8DE11A;"></i>
+                        <span class="truncate">Today <span id="todayDate"></span></span>
                     </h2>
                 </div>
 
                 <!-- Card Body -->
-                <div class="p-6 flex-1 flex flex-col items-center justify-center text-center">
-                    <img src="{{ asset('image/team-bro.png') }}" alt="Team Illustration"
-                        class="max-w-full object-contain mb-4" width="200" height="200">
-                    <p class="text-gray-700 text-lg font-medium" style="margin-top: -50px">We hope you have a productive
-                        day!</p>
+                <div class="p-3 flex-1 min-h-0 flex flex-col items-center justify-center text-center gap-2">
+                    <img src="{{ asset('image/Team-bro.png') }}" alt="Team Illustration"
+                        class="max-h-28 w-auto object-contain">
+                    <p class="text-gray-700 text-sm font-medium">We hope you have a productive day!</p>
                 </div>
             </div>
 
 
             <!-- Attendance Card -->
-            <div class="bg-white shadow-lg rounded-lg border border-gray-200 flex flex-col h-auto">
-                <div class="bg-white px-6 py-3 rounded-t-lg border-b border-gray-200">
-                    <h2 class="text-2xl font-bold text-gray-900 flex items-center gap-2">
-                        <i class="fa-regular fa-calendar-days text-3xl" style="color: #8DE11A;"></i>
-                        Attendance
+            <div class="bg-white shadow rounded-lg border border-gray-200 flex flex-col min-h-0 lg:col-span-2">
+                <div class="px-4 py-2 border-b border-gray-200 flex items-center justify-between gap-2">
+                    <h2 class="text-sm font-semibold text-gray-900 flex items-center gap-2 truncate">
+                        <i class="fa-regular fa-calendar-days text-base" style="color: #8DE11A;"></i>
+                        <span class="truncate">Attendance</span>
                     </h2>
                 </div>
 
-                <div class="p-6 flex-1">
-                    <div class="relative w-full h-[300px] sm:h-[350px] md:h-[400px]">
+                <div class="p-3 flex-1 min-h-0">
+                    <div class="relative w-full h-64 lg:h-full">
                         <canvas id="attendanceChart" class="w-full h-full"></canvas>
                     </div>
                 </div>
             </div>
 
             <!-- My Stuff Card -->
-            <div class="bg-white shadow-lg rounded-lg border border-gray-200 flex flex-col h-auto">
+            @php
+                $statusColor = fn($status) => match (strtolower((string) $status)) {
+                    'approved' => 'text-green-600',
+                    'pending' => 'text-yellow-600',
+                    default => 'text-red-600',
+                };
+            @endphp
+            <div class="bg-white shadow rounded-lg border border-gray-200 flex flex-col min-h-0 max-h-96 lg:max-h-none">
                 <!-- Header -->
-                <div class="bg-white px-6 py-3 rounded-t-lg border-b border-gray-200 flex justify-between items-center">
-                    <h2 class="text-2xl font-bold text-gray-900">
-                        <i class="fa-solid fa-folder-open text-3xl" style="color: #8DE11A;"></i>
-                        My Stuff
+                <div class="px-4 py-2 border-b border-gray-200 flex items-center justify-between gap-2">
+                    <div class="min-w-0">
+                        <h2 class="text-sm font-semibold text-gray-900 flex items-center gap-2 truncate">
+                        <i class="fa-solid fa-folder-open text-base" style="color: #8DE11A;"></i>
+                        <span class="truncate">My Stuff</span>
                     </h2>
-                    <button class="text-sm text-green-600 hover:underline">View All</button>
+                        <p class="text-[11px] text-gray-500 truncate">{{ $myStuff['scope'] }}</p>
+                    </div>
+                    <a href="{{ route('attendance.record') }}" class="text-xs text-green-600 hover:underline shrink-0">View All</a>
                 </div>
 
                 <!-- Body -->
-                <div class="p-6 flex-1 overflow-y-auto space-y-6 custom-scrollbar">
+                <div class="p-3 flex-1 min-h-0 overflow-y-auto space-y-3 custom-scrollbar">
                     <!-- Attendance Stats Summary -->
                     <div>
-                        <h3 class="text-md font-semibold text-gray-800 mb-2 border-b pb-1">Attendance Summary</h3>
-                        <div class="grid grid-cols-3 gap-3">
-                            <div class="bg-green-50 rounded-lg p-3 text-center border border-green-200">
-                                <p class="text-2xl font-bold text-green-700">24</p>
-                                <p class="text-xs text-gray-600">Days Present</p>
+                        <h3 class="text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-1.5">Attendance Summary</h3>
+                        <div class="grid grid-cols-3 gap-2">
+                            <div class="bg-green-50 rounded-md p-2 text-center border border-green-200">
+                                <p class="text-lg font-bold leading-tight text-green-700">{{ number_format($myStuff['present']) }}</p>
+                                <p class="text-[11px] text-gray-600">Present</p>
                             </div>
-                            <div class="bg-yellow-50 rounded-lg p-3 text-center border border-yellow-200">
-                                <p class="text-2xl font-bold text-yellow-700">3</p>
-                                <p class="text-xs text-gray-600">Late Entries</p>
+                            <div class="bg-yellow-50 rounded-md p-2 text-center border border-yellow-200">
+                                <p class="text-lg font-bold leading-tight text-yellow-700">{{ number_format($myStuff['late']) }}</p>
+                                <p class="text-[11px] text-gray-600">Late</p>
                             </div>
-                            <div class="bg-red-50 rounded-lg p-3 text-center border border-red-200">
-                                <p class="text-2xl font-bold text-red-700">1</p>
-                                <p class="text-xs text-gray-600">Absences</p>
+                            <div class="bg-red-50 rounded-md p-2 text-center border border-red-200">
+                                <p class="text-lg font-bold leading-tight text-red-700">{{ number_format($myStuff['on_leave']) }}</p>
+                                <p class="text-[11px] text-gray-600">On Leave</p>
                             </div>
                         </div>
                     </div>
 
                     <!-- Recent Certificates -->
                     <div>
-                        <h3 class="text-md font-semibold text-gray-800 mb-2 border-b pb-1">Recent Certificates</h3>
-                        <ul class="space-y-2 text-sm">
-                            <li class="flex justify-between items-center border-b pb-1">
-                                <span class="text-gray-700">Nov 1, 2025</span>
-                                <span class="text-green-600 font-medium">Approved</span>
-                            </li>
-                            <li class="flex justify-between items-center border-b pb-1">
-                                <span class="text-gray-700">Oct 29, 2025</span>
-                                <span class="text-yellow-600 font-medium">Pending</span>
-                            </li>
-                            <li class="flex justify-between items-center">
-                                <span class="text-gray-700">Oct 25, 2025</span>
-                                <span class="text-green-600 font-medium">Approved</span>
-                            </li>
+                        <h3 class="text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-1.5">Recent Certificates</h3>
+                        <ul class="space-y-1.5 text-xs">
+                            @forelse ($myStuff['certificates'] as $certificate)
+                                <li class="flex justify-between items-center gap-2 {{ $loop->last ? '' : 'border-b pb-1' }}">
+                                    <span class="text-gray-700 min-w-0">
+                                        {{ $certificate->date ? \Carbon\Carbon::parse($certificate->date)->format('M j, Y') : '—' }}
+                                        <span class="text-gray-400 text-[11px] block truncate">{{ $certificate->employee_name }}</span>
+                                    </span>
+                                    <span class="{{ $statusColor($certificate->approval_status) }} font-medium">{{ ucfirst($certificate->approval_status) }}</span>
+                                </li>
+                            @empty
+                                <li class="text-gray-400">No certificates filed yet.</li>
+                            @endforelse
                         </ul>
                     </div>
 
                     <!-- Pending Approvals -->
                     <div>
-                        <h3 class="text-md font-semibold text-gray-800 mb-2 border-b pb-1">Pending Approvals</h3>
-                        <p class="text-sm text-gray-600">You currently have <span class="font-bold text-yellow-600">2
-                                pending</span> certificates awaiting admin review.</p>
+                        <h3 class="text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-1.5">Pending Approvals</h3>
+                        @if ($myStuff['pending_total'] > 0)
+                            <p class="text-xs text-gray-600 mb-1"><span class="font-bold text-yellow-600">{{ $myStuff['pending_total'] }}
+                                    pending</span> {{ \Illuminate\Support\Str::plural('request', $myStuff['pending_total']) }} awaiting review.</p>
+                            <ul class="text-xs text-gray-600 space-y-0.5">
+                                <li class="flex justify-between"><span>Certificates of Attendance</span><span class="font-semibold">{{ $myStuff['pending']['certificates'] }}</span></li>
+                                <li class="flex justify-between"><span>Schedule Adjustments</span><span class="font-semibold">{{ $myStuff['pending']['schedule_adjustments'] }}</span></li>
+                                <li class="flex justify-between"><span>Overtime</span><span class="font-semibold">{{ $myStuff['pending']['overtimes'] }}</span></li>
+                                <li class="flex justify-between"><span>Leaves</span><span class="font-semibold">{{ $myStuff['pending']['leaves'] }}</span></li>
+                            </ul>
+                        @else
+                            <p class="text-xs text-gray-400">Nothing is awaiting review.</p>
+                        @endif
                     </div>
 
                     <!-- Recent Clock-ins -->
                     <div>
-                        <h3 class="text-md font-semibold text-gray-800 mb-2 border-b pb-1">Recent Clock-ins/Outs</h3>
-                        <ul class="space-y-2 text-sm">
-                            <li class="flex justify-between items-center border-b pb-1">
-                                <span class="text-gray-700">Nov 3, 2025</span>
-                                <span class="text-gray-500">8:02 AM - 5:01 PM</span>
-                            </li>
-                            <li class="flex justify-between items-center border-b pb-1">
-                                <span class="text-gray-700">Nov 2, 2025</span>
-                                <span class="text-gray-500">8:05 AM - 5:03 PM</span>
-                            </li>
-                            <li class="flex justify-between items-center">
-                                <span class="text-gray-700">Nov 1, 2025</span>
-                                <span class="text-gray-500">8:00 AM - 5:00 PM</span>
-                            </li>
+                        <h3 class="text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-1.5">Recent Clock-ins/Outs</h3>
+                        <ul class="space-y-1.5 text-xs">
+                            @forelse ($myStuff['clock_ins'] as $clockIn)
+                                <li class="flex justify-between items-center gap-2 {{ $loop->last ? '' : 'border-b pb-1' }}">
+                                    <span class="text-gray-700 min-w-0">
+                                        {{ \Carbon\Carbon::parse($clockIn->record_date)->format('M j, Y') }}
+                                        <span class="text-gray-400 text-[11px] block truncate">{{ $clockIn->employee_name }}</span>
+                                    </span>
+                                    <span class="text-gray-500 whitespace-nowrap">{{ $clockIn->earliest_time ?: '—' }} - {{ $clockIn->latest_time ?: '—' }}</span>
+                                </li>
+                            @empty
+                                <li class="text-gray-400">No clock-ins in the active import.</li>
+                            @endforelse
                         </ul>
                     </div>
                 </div>
@@ -175,22 +191,21 @@
         </style>
 
         <!-- Row 2 -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-10">
-            <!-- Card 1: Upcoming Holidays -->
-            <div class="col-span-1 bg-white shadow-lg rounded-lg border border-gray-200 flex flex-col h-[415px]">
-                <div class="bg-white px-6 py-3 rounded-t-lg border-b border-gray-200 flex items-center justify-between">
-                    <h2 class="text-2xl font-bold text-gray-900 flex items-center space-x-2">
-                        <i class="fa-solid fa-calendar-days text-3xl" style="color: #8DE11A;"></i>
-                        <span>Upcoming Holidays</span>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 lg:flex-1 lg:min-h-0">
+            <!-- Upcoming Holidays -->
+            <div class="bg-white shadow rounded-lg border border-gray-200 flex flex-col min-h-0 h-72 lg:h-auto">
+                <div class="px-4 py-2 border-b border-gray-200 flex items-center justify-between gap-2">
+                    <h2 class="text-sm font-semibold text-gray-900 flex items-center gap-2 truncate">
+                        <i class="fa-solid fa-calendar-days text-base" style="color: #8DE11A;"></i>
+                        <span id="holidaysTitle" class="truncate">Holidays · {{ now()->format('F') }}</span>
                     </h2>
                     <button onclick="openCustomeDates();"
-                        class="flex items-center px-3 py-1 bg-white text-green-600 font-semibold rounded-lg shadow-sm border border-green-600 text-sm">
+                        class="flex items-center px-2 py-0.5 bg-white text-green-600 font-semibold rounded-md border border-green-600 text-xs shrink-0">
                         <i class="fa-solid fa-plus mr-1"></i> Add
                     </button>
                 </div>
 
-                <div
-                    class="p-6 flex-1 overflow-hidden relative h-64 group rounded-lg border border-gray-200 bg-white transition-all flex flex-col">
+                <div class="p-2 flex-1 min-h-0 overflow-hidden relative group flex flex-col">
                     <div class="marquee-vertical group-hover:[animation-play-state:paused] group-hover:overflow-y-auto">
                         <div class="marquee-content">
                         </div>
@@ -198,78 +213,54 @@
                 </div>
             </div>
 
-            <!-- Card 2: Overtime Requests Status -->
-            <div class="col-span-1 bg-white shadow-lg rounded-lg border border-gray-200 flex flex-col">
-                <div class="bg-white px-6 py-3 rounded-t-lg border-b border-gray-200 flex items-center justify-between">
-                    <h2 class="text-2xl font-bold text-gray-900 flex items-center">
-                        <i class="fa-solid fa-clock text-3xl mr-2" style="color: #8DE11A;"></i>
-                        Overtime Requests Status
+            <div class="bg-white shadow rounded-lg border border-gray-200 flex flex-col min-h-0 h-72 lg:h-auto">
+                <div class="px-4 py-2 border-b border-gray-200 flex items-center justify-between gap-2">
+                    <h2 class="text-sm font-semibold text-gray-900 flex items-center gap-2 truncate">
+                        <i class="fa-solid fa-clock text-base" style="color: #8DE11A;"></i>
+                        <span class="truncate">Overtime Requests</span>
                     </h2>
                 </div>
-                <div class="p-6 flex-1 flex justify-center items-center relative" style="height: 300px;">
+                <div class="p-3 flex-1 min-h-0 relative">
                     <canvas id="overtimeStatusChart"></canvas>
                 </div>
             </div>
-
-            <!-- Card 3: Certificate of Attendance -->
-            <div class="col-span-1 bg-white shadow-lg rounded-lg border border-gray-200 flex flex-col">
-                <div class="bg-white px-6 py-3 rounded-t-lg border-b border-gray-200 flex items-center justify-between">
-                    <h2 class="text-2xl font-bold text-gray-900 flex items-center">
-                        <i class="fa-regular fa-calendar-check text-3xl mr-2" style="color: #8DE11A;"></i>
-                        Certificate of Attendance Status
+            <div class="bg-white shadow rounded-lg border border-gray-200 flex flex-col min-h-0 h-72 lg:h-auto">
+                <div class="px-4 py-2 border-b border-gray-200 flex items-center justify-between gap-2">
+                    <h2 class="text-sm font-semibold text-gray-900 flex items-center gap-2 truncate">
+                        <i class="fa-regular fa-calendar-check text-base" style="color: #8DE11A;"></i>
+                        <span class="truncate">Certificates of Attendance</span>
                     </h2>
                 </div>
-                <div class="p-6 flex-1 flex justify-center items-center relative" style="height: 300px;">
+                <div class="p-3 flex-1 min-h-0 relative">
                     <canvas id="certificateOfAttendanceChart"></canvas>
                 </div>
             </div>
-        </div>
-
-        <!-- Row 3 -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            <!-- Card 1: Schedule Djustment Status -->
-            <div class="col-span-1 bg-white shadow-lg rounded-lg border border-gray-200 flex flex-col">
-                <div
-                    class="bg-white px-6 py-3 rounded-t-lg border-b border-gray-200 flex items-center justify-between">
-                    <h2 class="text-2xl font-bold text-gray-900 flex items-center">
-                        <i class="fa-solid fa-clock text-3xl mr-2" style="color: #8DE11A;"></i>
-                        Schedule Adjustment Status
+            <div class="bg-white shadow rounded-lg border border-gray-200 flex flex-col min-h-0 h-72 lg:h-auto">
+                <div class="px-4 py-2 border-b border-gray-200 flex items-center justify-between gap-2">
+                    <h2 class="text-sm font-semibold text-gray-900 flex items-center gap-2 truncate">
+                        <i class="fa-solid fa-clock text-base" style="color: #8DE11A;"></i>
+                        <span class="truncate">Schedule Adjustments</span>
                     </h2>
                 </div>
-                <div class="p-6 flex-1 flex justify-center items-center relative" style="height: 300px;">
+                <div class="p-3 flex-1 min-h-0 relative">
                     <canvas id="scheduleAdjustmentStatusChart"></canvas>
                 </div>
             </div>
-
-            <!-- Card 2: Leaves Status -->
-            <div class="col-span-1 bg-white shadow-lg rounded-lg border border-gray-200 flex flex-col">
-                <div
-                    class="bg-white px-6 py-3 rounded-t-lg border-b border-gray-200 flex items-center justify-between">
-                    <h2 class="text-2xl font-bold text-gray-900 flex items-center">
-                        <i class="fa-solid fa-clock text-3xl mr-2" style="color: #8DE11A;"></i>
-                        Leaves Status
+            <div class="bg-white shadow rounded-lg border border-gray-200 flex flex-col min-h-0 h-72 lg:h-auto">
+                <div class="px-4 py-2 border-b border-gray-200 flex items-center justify-between gap-2">
+                    <h2 class="text-sm font-semibold text-gray-900 flex items-center gap-2 truncate">
+                        <i class="fa-solid fa-plane-departure text-base" style="color: #8DE11A;"></i>
+                        <span class="truncate">Leaves</span>
                     </h2>
                 </div>
-                <div class="p-6 flex-1 flex justify-center items-center relative" style="height: 300px;">
+                <div class="p-3 flex-1 min-h-0 relative">
                     <canvas id="leaveStatusChart"></canvas>
                 </div>
             </div>
-
-            <!-- Card 3: Certificate of Attendance -->
-            {{-- <div class="col-span-1 bg-white shadow-lg rounded-lg border border-gray-200 flex flex-col">
-                <div
-                    class="bg-white px-6 py-3 rounded-t-lg border-b border-gray-200 flex items-center justify-between">
-                    <h2 class="text-2xl font-bold text-gray-900 flex items-center">
-                        <i class="fa-regular fa-calendar-check text-3xl mr-2" style="color: #8DE11A;"></i>
-                        Certificate of Attendance
-                    </h2>
-                </div>
-                <div class="p-6 flex-1 flex justify-center items-center relative" style="height: 300px;">
-                    <canvas id="certificateOfAttendanceChart"></canvas>
-                </div>
-            </div> --}}
         </div>
+    </div>
 
+    <div class="px-6">
         <!-- Add Custom Dates Modal -->
         <div id="addCustomeDatesModal"
             class="fixed inset-0 z-50 hidden items-center justify-center bg-black bg-opacity-50">
@@ -307,7 +298,7 @@
                             class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 text-sm">
                             <option value="" disabled selected>Select holiday type</option>
                             <option value="Regular Holiday">Regular Holiday</option>
-                            <option value="Special Non-working Day">Special Non-working Day</option>
+                            <option value="Special Non-Working Holiday">Special Non-Working Holiday</option>
                             <option value="Others">Others</option>
                         </select>
                     </div>
@@ -333,6 +324,10 @@
 
         <!-- AJAX Script -->
         <script>
+            Chart.defaults.font.size = 11;
+            Chart.defaults.plugins.legend.labels.boxWidth = 10;
+            Chart.defaults.plugins.legend.labels.padding = 8;
+
             $(document).ready(function() {
                 $.ajax({
                     url: "{{ route('leaves.status.summary') }}",
@@ -346,10 +341,10 @@
 
                         if (!hasData) {
                             chartContainer.html(`
-                    <div class="flex flex-col items-center justify-center h-64 text-gray-500">
-                        <i class="fa-solid fa-chart-pie text-5xl mb-3 text-gray-400"></i>
-                        <p class="text-lg font-semibold text-gray-600">No leave data available</p>
-                        <p class="text-sm text-gray-400">Data will appear once records are submitted</p>
+                    <div class="flex flex-col items-center justify-center h-full text-center text-gray-500">
+                        <i class="fa-solid fa-chart-pie text-3xl mb-2 text-gray-400"></i>
+                        <p class="text-sm font-semibold text-gray-600">No leave data available</p>
+                        <p class="text-xs text-gray-400">Data will appear once records are submitted</p>
                     </div>
                 `);
                             return;
@@ -381,7 +376,7 @@
                                         labels: {
                                             color: "#333",
                                             font: {
-                                                size: 14
+                                                size: 11
                                             }
                                         }
                                     },
@@ -419,10 +414,10 @@
                     error: function() {
                         const chartContainer = $('#leaveStatusChart').parent();
                         chartContainer.html(`
-                <div class="flex flex-col items-center justify-center h-64 text-gray-500">
-                    <i class="fa-solid fa-triangle-exclamation text-5xl mb-3 text-red-400"></i>
-                    <p class="text-lg font-semibold text-gray-700">Failed to load data</p>
-                    <p class="text-sm text-gray-400">Please try again later</p>
+                <div class="flex flex-col items-center justify-center h-full text-center text-gray-500">
+                    <i class="fa-solid fa-triangle-exclamation text-3xl mb-2 text-red-400"></i>
+                    <p class="text-sm font-semibold text-gray-700">Failed to load data</p>
+                    <p class="text-xs text-gray-400">Please try again later</p>
                 </div>
             `);
                     }
@@ -443,10 +438,10 @@
 
                         if (!hasData) {
                             chartContainer.html(`
-                    <div class="flex flex-col items-center justify-center h-64 text-gray-500">
-                        <i class="fa-solid fa-calendar-xmark text-5xl mb-3 text-gray-400"></i>
-                        <p class="text-lg font-semibold text-gray-600">No schedule adjustment data</p>
-                        <p class="text-sm text-gray-400">Records will appear once adjustments are filed</p>
+                    <div class="flex flex-col items-center justify-center h-full text-center text-gray-500">
+                        <i class="fa-solid fa-calendar-xmark text-3xl mb-2 text-gray-400"></i>
+                        <p class="text-sm font-semibold text-gray-600">No schedule adjustment data</p>
+                        <p class="text-xs text-gray-400">Records will appear once adjustments are filed</p>
                     </div>
                 `);
                             return;
@@ -478,7 +473,7 @@
                                         labels: {
                                             color: "#333",
                                             font: {
-                                                size: 14
+                                                size: 11
                                             }
                                         }
                                     },
@@ -516,10 +511,10 @@
                     error: function() {
                         const chartContainer = $('#scheduleAdjustmentStatusChart').parent();
                         chartContainer.html(`
-                <div class="flex flex-col items-center justify-center h-64 text-gray-500">
-                    <i class="fa-solid fa-triangle-exclamation text-5xl mb-3 text-red-400"></i>
-                    <p class="text-lg font-semibold text-gray-700">Failed to load schedule data</p>
-                    <p class="text-sm text-gray-400">Please refresh or try again later</p>
+                <div class="flex flex-col items-center justify-center h-full text-center text-gray-500">
+                    <i class="fa-solid fa-triangle-exclamation text-3xl mb-2 text-red-400"></i>
+                    <p class="text-sm font-semibold text-gray-700">Failed to load schedule data</p>
+                    <p class="text-xs text-gray-400">Please refresh or try again later</p>
                 </div>
             `);
                     }
@@ -529,8 +524,8 @@
                 fetch("/certificate-attendance-summary")
                     .then(response => response.json())
                     .then(data => {
-                        const chartContainer = document.getElementById("certificateOfAttendanceChartContainer");
                         const canvas = document.getElementById("certificateOfAttendanceChart");
+                        const chartContainer = canvas.parentElement;
                         const ctx = canvas.getContext("2d");
 
                         const hasData = data.data && data.data.some(value => value > 0);
@@ -538,10 +533,10 @@
                         // Show "No Data" UI
                         if (!hasData) {
                             chartContainer.innerHTML = `
-                    <div class="flex flex-col items-center justify-center h-64 text-gray-500">
-                        <i class="fa-solid fa-chart-pie text-5xl mb-3 text-gray-400"></i>
-                        <p class="text-lg font-semibold text-gray-600">No certificate data available</p>
-                        <p class="text-sm text-gray-400">Data will appear once records are submitted</p>
+                    <div class="flex flex-col items-center justify-center h-full text-center text-gray-500">
+                        <i class="fa-solid fa-chart-pie text-3xl mb-2 text-gray-400"></i>
+                        <p class="text-sm font-semibold text-gray-600">No certificate data available</p>
+                        <p class="text-xs text-gray-400">Data will appear once records are submitted</p>
                     </div>
                 `;
                             return;
@@ -575,7 +570,7 @@
                                         labels: {
                                             color: "#333",
                                             font: {
-                                                size: 14
+                                                size: 11
                                             }
                                         }
                                     },
@@ -609,12 +604,12 @@
                         });
                     })
                     .catch(() => {
-                        const chartContainer = document.getElementById("certificateOfAttendanceChartContainer");
+                        const chartContainer = document.getElementById("certificateOfAttendanceChart").parentElement;
                         chartContainer.innerHTML = `
-                <div class="flex flex-col items-center justify-center h-64 text-gray-500">
-                    <i class="fa-solid fa-triangle-exclamation text-5xl mb-3 text-red-400"></i>
-                    <p class="text-lg font-semibold text-gray-700">Failed to load data</p>
-                    <p class="text-sm text-gray-400">Please try again later</p>
+                <div class="flex flex-col items-center justify-center h-full text-center text-gray-500">
+                    <i class="fa-solid fa-triangle-exclamation text-3xl mb-2 text-red-400"></i>
+                    <p class="text-sm font-semibold text-gray-700">Failed to load data</p>
+                    <p class="text-xs text-gray-400">Please try again later</p>
                 </div>
             `;
                     });
@@ -650,7 +645,7 @@
                                         labels: {
                                             color: '#374151',
                                             font: {
-                                                size: 14
+                                                size: 11
                                             }
                                         }
                                     },
@@ -658,7 +653,7 @@
                                         color: '#fff',
                                         font: {
                                             weight: 'bold',
-                                            size: 14
+                                            size: 11
                                         },
                                         formatter: (value, context) => {
                                             const dataset = context.chart.data.datasets[0].data;
@@ -739,39 +734,76 @@
                 $('#todayDate').text(formatted);
             }
 
+            // "2026-11-01 00:00:00" -> "Nov 01, 2026"
+            function holidayDateLabel(recordDate) {
+                return new Date(String(recordDate).substring(0, 10) + 'T00:00:00').toLocaleDateString('en-US', {
+                    month: 'short',
+                    day: '2-digit',
+                    year: 'numeric'
+                });
+            }
+
+            function escapeHolidayText(value) {
+                const div = document.createElement('div');
+                div.textContent = value ?? '';
+                return div.innerHTML;
+            }
+
+            // The current month's holidays. Earlier days of the month stay listed (dimmed) since they
+            // still count for this month's payroll; an empty month names the next holiday instead.
             function loadCustomDates() {
                 fetch('/custom-dates')
                     .then(res => res.json())
                     .then(data => {
                         const container = document.querySelector('.marquee-content');
-                        container.innerHTML = '';
+                        const monthName = (data.month || '').split(' ')[0];
+                        document.getElementById('holidaysTitle').textContent = 'Holidays · ' + monthName;
 
-                        data.forEach(item => {
-                            container.innerHTML += `
-                    <div class="flex justify-between items-center bg-white px-4 py-3 rounded-lg border-b border-[#8DE11A] mb-3">
+                        const now = new Date();
+                        const today = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' +
+                            String(now.getDate()).padStart(2, '0');
+
+                        if (!data.holidays.length) {
+                            const next = data.next
+                                ? `<p class="text-xs text-gray-500 mt-1">Next: ${holidayDateLabel(data.next.record_date)} — ` +
+                                  `${escapeHolidayText(data.next.title)} <span class="italic">(${escapeHolidayText(data.next.holiday_type)})</span></p>`
+                                : '';
+                            container.innerHTML = `
+                    <div class="px-2 py-3 text-center">
+                        <p class="text-xs text-gray-700 font-semibold">No holidays in ${escapeHolidayText(monthName)}.</p>
+                        ${next}
+                    </div>`;
+                        } else {
+                            container.innerHTML = data.holidays.map(item => {
+                                const day = String(item.record_date).substring(0, 10);
+                                const tag = day === today
+                                    ? '<span class="ml-1 px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 text-[10px] font-semibold">Today</span>'
+                                    : day < today
+                                        ? '<span class="ml-1 px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500 text-[10px] font-semibold">Passed</span>'
+                                        : '';
+                                return `
+                    <div class="flex justify-between items-center gap-2 bg-white px-2 py-1.5 border-b border-[#8DE11A] mb-1 ${day < today ? 'opacity-60' : ''}">
                         <div>
-                            <p class="text-gray-900 font-semibold">
-                                ${new Date(item.record_date).toLocaleDateString('en-US', {
-                                    month: 'short',
-                                    day: '2-digit',
-                                    year: 'numeric'
-                                })}
-                            </p>
-                            <p class="text-gray-700 text-sm">
-                                ${item.title} — <span class="italic text-gray-600">${item.holiday_type}</span>
+                            <p class="text-xs text-gray-900 font-semibold">${holidayDateLabel(item.record_date)}${tag}</p>
+                            <p class="text-xs text-gray-700">
+                                ${escapeHolidayText(item.title)} — <span class="italic text-gray-600">${escapeHolidayText(item.holiday_type)}</span>
                             </p>
                         </div>
-                        <div class="flex space-x-2">
-                            <button class="p-2 bg-white rounded-lg hover:bg-gray-100 focus:outline-none">
+                        <div class="flex shrink-0 gap-1">
+                            <button class="p-1 text-xs bg-white rounded hover:bg-gray-100 focus:outline-none">
                                 <i class="fa-solid fa-pen"></i>
                             </button>
-                            <button class="p-2 bg-white rounded-lg hover:bg-gray-100 focus:outline-none">
+                            <button class="p-1 text-xs bg-white rounded hover:bg-gray-100 focus:outline-none">
                                 <i class="fa-solid fa-trash text-black"></i>
                             </button>
                         </div>
-                    </div>
-                `;
-                        });
+                    </div>`;
+                            }).join('');
+                        }
+
+                        // Scroll only when the list is taller than the card
+                        const marquee = container.closest('.marquee-vertical');
+                        marquee.style.animation = container.scrollHeight > marquee.parentElement.clientHeight ? '' : 'none';
                     })
                     .catch(err => {
                         Swal.fire({
@@ -803,14 +835,15 @@
                         if (response.success) {
                             Swal.fire({
                                 title: 'Success!',
-                                text: response.message,
+                                // The card lists only this month, so say where a holiday for another month went
+                                text: response.message + ' Added for ' + new Date(data.record_date + 'T00:00:00')
+                                    .toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) + '.',
                                 icon: 'success',
                                 confirmButtonColor: '#16A34A', // Tailwind green-600
                                 confirmButtonText: 'OK'
                             }).then(() => {
                                 closeCustomeDates();
-                                // Optional: refresh data table or reload list here
-                                // location.reload();
+                                loadCustomDates();
                             });
                         } else {
                             Swal.fire({
@@ -840,4 +873,5 @@
                 document.getElementById('addCustomeDatesModal').classList.replace('flex', 'hidden');
             }
         </script>
+    </div>
 </x-app-layout>

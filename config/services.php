@@ -35,4 +35,13 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
+    'ticketing' => [
+        // Centralized org login used by all in-house systems, see TicketingSystemVersion2 routes/api.php
+        'url' => env('TICKETING_API_URL', 'https://ictsupportrequest.leoniogroup.com/api'),
+
+        // Read-only 'org:read' Sanctum token for GET /org/* (business units, companies,
+        // departments, users), issued via `php artisan api:issue-org-token` on that app.
+        'org_token' => env('TICKETING_ORG_API_TOKEN'),
+    ],
+
 ];

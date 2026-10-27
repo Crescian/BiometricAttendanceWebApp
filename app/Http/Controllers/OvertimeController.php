@@ -2,15 +2,21 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\AuditLogger;
+use App\Models\Department;
 use App\Models\Overtime;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Yajra\DataTables\Facades\DataTables;
 use App\Models\BiometricHistoryList;
+use App\Http\Controllers\Concerns\FiltersTables;
 use App\Services\ComputationService;
 use Illuminate\Support\Facades\DB;
 
 class OvertimeController extends Controller
 {
+    use FiltersTables;
+
     protected $biometricHistoryList;
 
     public function __construct(BiometricHistoryList $biometricHistoryList)
@@ -63,8 +69,6 @@ class OvertimeController extends Controller
         if ($request->ajax()) {
             // Get request parameters
             $status      = $request->get('status', 'Pending');
-            $userRole    = $request->get('userRole', 'user'); // default 'user'
-            $department  = $request->get('department');
             $biometricId = $this->biometricHistoryList->getLoadedRecordId();
 
             // Build query
@@ -74,18 +78,223 @@ class OvertimeController extends Controller
                 // Always filter by biometric import ID if available
                 ->when($biometricId, fn($q) => $q->where('biometric_imports_id', $biometricId));
 
-            // Filter by department only if userRole is 'user'
-            if ($userRole === 'user' && $department) {
-                $data->where('department', $department);
+            // Non-admins only see the departments they head, decided here rather than
+            // from the role/department the page sends (which the browser could change).
+            $this->restrictToOwnDepartments($data);
+            $this->applyFilters($data, $request);
+
+            // Default order when the table asks for none; otherwise DataTables applies the
+            // clicked column (a fixed orderBy here would always take precedence over it).
+            if (!$request->filled('order')) {
+                $data->orderBy('record_date', 'asc')->orderBy('last_name', 'asc');
             }
 
-            // Order by first name
-            $data->orderBy('first_name', 'asc');
-
-            // Return results for DataTables
-            return DataTables::of($data)->make(true);
+            // Sorting by employee keeps each employee's days in date order
+            return DataTables::of($data)
+                ->orderColumn('last_name', 'last_name $1, first_name $1, record_date asc')
+                // The Employee column shows "LAST, FIRST": search the stored full name, so a pasted
+                // name (e.g. "BALONCIO, KATRINA MEDALLA") matches, comma included.
+                ->filterColumn('last_name', function ($query, $keyword) {
+                    $query->whereRaw('employee_name ILIKE ?', ['%'.addcslashes($keyword, '%_\\').'%']);
+                })
+                ->make(true);
         }
         return view('overtime.fetch');
+    }
+
+    /**
+     * Restrict a query to the departments the current user heads (admins see everything).
+     */
+    /** Hour columns of an overtime row ("HH:MM" strings). */
+    private const HOURS_COLUMNS = ['ord_ot', 'ord_nd', 'ord_nd_ot', 'rd', 'rd_ot', 'rd_nd', 'rd_nd_ot'];
+
+    /**
+     * "With hours only" (on by default on the Overtime page): leave out rows whose hours are all
+     * 00:00. Those rows stay in the database; they can gain hours when a time or schedule changes.
+     */
+    protected function withHoursOnly($query, Request $request)
+    {
+        if ($request->boolean('with_hours')) {
+            $query->where(function ($q) {
+                foreach (self::HOURS_COLUMNS as $column) {
+                    $q->orWhereRaw("{$column} ~ '[1-9]'");
+                }
+            });
+        }
+
+        return $query;
+    }
+
+    /** Overtime page filters: the shared date / department / schedule filters, plus OT type. */
+    protected function applyFilters($query, Request $request)
+    {
+        $this->applyTableFilters($query, $request, 'record_date', 'department', 'schedule');
+        $this->withHoursOnly($query, $request);
+
+        $request->validate(['ot_type' => ['nullable', 'in:ord_ot,nd,rd']]);
+
+        // Hours are "HH:MM" strings: a value has hours when it contains a non-zero digit
+        $columns = [
+            'ord_ot' => ['ord_ot'],
+            'nd' => ['ord_nd', 'ord_nd_ot'],
+            'rd' => ['rd', 'rd_ot', 'rd_nd', 'rd_nd_ot'],
+        ][$request->ot_type] ?? null;
+        if ($columns) {
+            $query->where(function ($q) use ($columns) {
+                foreach ($columns as $column) {
+                    $q->orWhereRaw("{$column} ~ '[1-9]'");
+                }
+            });
+        }
+
+        return $query;
+    }
+
+    /** Choices for the Overtime page filters: departments, schedules and the date range of the loaded import. */
+    public function filterOptions()
+    {
+        return response()->json($this->tableFilterOptions(
+            fn () => $this->restrictToOwnDepartments(
+                Overtime::where('biometric_imports_id', $this->biometricHistoryList->getLoadedRecordId())
+            ),
+            'record_date', 'department', 'schedule'
+        ));
+    }
+
+    protected function restrictToOwnDepartments($query)
+    {
+        return $this->restrictToHeadedDepartments($query, 'department');
+    }
+
+    /**
+     * Pending overtime of the loaded import that the current user may approve —
+     * the same rows the Overtime page's Pending tab lists.
+     */
+    protected function pendingScope()
+    {
+        return $this->restrictToOwnDepartments(
+            Overtime::where('status', 'Pending')
+                ->where('biometric_imports_id', $this->biometricHistoryList->getLoadedRecordId())
+        );
+    }
+
+    /**
+     * Approve several overtime records at once (Overtime page, "Approve selected").
+     * Only rows that are still Pending change; a department head can only approve
+     * overtime of the departments they head.
+     */
+    public function bulkApprove(Request $request)
+    {
+        $validated = $request->validate([
+            'ids'   => ['required', 'array', 'min:1', 'max:500'],
+            'ids.*' => ['integer'],
+        ]);
+        $ids = array_values(array_unique($validated['ids']));
+
+        $query = $this->restrictToOwnDepartments(
+            Overtime::whereIn('id', $ids)->where('status', 'Pending')
+        );
+
+        $approvedIds = (clone $query)->pluck('id');
+        $approved = DB::transaction(fn () => $query->update(['status' => 'Approved', 'updated_at' => now()]));
+        $skipped  = count($ids) - $approved;
+
+        AuditLogger::record('overtime.bulk_approved', [
+            'category' => 'approval',
+            'action' => 'approve',
+            'outcome' => $approved > 0 ? 'success' : 'failure',
+            'description' => "Bulk approved {$approved} overtime ".($approved === 1 ? 'record' : 'records')
+                ." (selected {$approvedIds->count()} of ".count($ids).' requested)',
+            'old' => ['status' => 'Pending'],
+            'new' => ['status' => 'Approved'],
+            'metadata' => ['mode' => 'selected', 'approved_ids' => $approvedIds->all(), 'requested_ids' => $ids, 'skipped' => $skipped],
+        ]);
+
+        return response()->json([
+            'success'  => true,
+            'approved' => $approved,
+            'skipped'  => $skipped,
+            'message'  => "{$approved} overtime " . ($approved === 1 ? 'record' : 'records') . ' approved.'
+                . ($skipped > 0 ? " {$skipped} skipped (no longer pending or outside your departments)." : ''),
+        ]);
+    }
+
+    /**
+     * Choices for "Bulk approve": pending counts per department, per employee and per date.
+     */
+    public function bulkOptions(Request $request)
+    {
+        $departments = $this->withHoursOnly($this->pendingScope(), $request)
+            ->select('department as value', DB::raw('COUNT(*) as count'))
+            ->groupBy('department')
+            ->orderBy('department')
+            ->get();
+
+        $employees = $this->withHoursOnly($this->pendingScope(), $request)
+            ->select('employee_name as value', 'department', DB::raw('COUNT(*) as count'))
+            ->groupBy('employee_name', 'department')
+            ->orderBy('employee_name')
+            ->get();
+
+        $dates = $this->withHoursOnly($this->pendingScope(), $request)
+            ->select(DB::raw("TO_CHAR(record_date, 'YYYY-MM-DD') as value"), DB::raw('COUNT(*) as count'))
+            ->groupBy(DB::raw("TO_CHAR(record_date, 'YYYY-MM-DD')"))
+            ->orderBy('value')
+            ->get();
+
+        return response()->json([
+            'success'     => true,
+            'total'       => $this->withHoursOnly($this->pendingScope(), $request)->count(),
+            'departments' => $departments,
+            'employees'   => $employees,
+            'dates'       => $dates,
+        ]);
+    }
+
+    /**
+     * Approve every pending overtime of one department, one employee or one date,
+     * or all of it (within the loaded import and the user's own departments).
+     */
+    public function bulkApproveBy(Request $request)
+    {
+        $validated = $request->validate([
+            'by'    => ['required', 'in:all,department,employee,date'],
+            'value' => ['required_unless:by,all', 'nullable', 'string', 'max:255'],
+        ]);
+        if ($validated['by'] === 'date') {
+            $request->validate(['value' => ['date_format:Y-m-d']]);
+        }
+
+        // Same rows as the table and the bulk options ("With hours only")
+        $query = $this->withHoursOnly($this->pendingScope(), $request);
+        match ($validated['by']) {
+            'all'        => null,
+            'department' => $query->where('department', $validated['value']),
+            'employee'   => $query->where('employee_name', $validated['value']),
+            'date'       => $query->whereDate('record_date', $validated['value']),
+        };
+
+        $approvedIds = (clone $query)->pluck('id');
+        $approved = DB::transaction(fn () => $query->update(['status' => 'Approved', 'updated_at' => now()]));
+
+        AuditLogger::record('overtime.bulk_approved', [
+            'category' => 'approval',
+            'action' => 'approve',
+            'outcome' => $approved > 0 ? 'success' : 'failure',
+            'description' => "Bulk approved {$approved} overtime ".($approved === 1 ? 'record' : 'records')
+                .' by '.$validated['by'].($validated['by'] !== 'all' ? ' "'.$validated['value'].'"' : ''),
+            'old' => ['status' => 'Pending'],
+            'new' => ['status' => 'Approved'],
+            'metadata' => ['mode' => $validated['by'], 'value' => $validated['value'] ?? null, 'approved_ids' => $approvedIds->all()],
+        ]);
+
+        return response()->json([
+            'success'  => true,
+            'approved' => $approved,
+            'message'  => $approved > 0
+                ? "{$approved} overtime " . ($approved === 1 ? 'record' : 'records') . ' approved.'
+                : 'There was no pending overtime to approve for this choice.',
+        ]);
     }
 
     public function approve($id)
@@ -202,6 +411,9 @@ class OvertimeController extends Controller
         //     'latest_time' => 'required|date_format:H:i',
         // ]);
 
+        $otFields = ['ord_ot', 'ord_nd', 'ord_nd_ot', 'rd', 'rd_ot', 'rd_nd', 'rd_nd_ot', 'late', 'late_hours', 'late_minutes'];
+        $otBefore = collect($overtime->getAttributes())->only($otFields)->all();
+
         // If original times are empty, store them first before updating
         if (empty($overtime->original_earliest_time)) {
             $overtime->original_earliest_time = $overtime->earliest_time ?? $request->earliest_time;
@@ -251,6 +463,20 @@ class OvertimeController extends Controller
             'ord'
         );
 
+        // The recalculation writes through the query builder, so record its result explicitly
+        $otAfter = collect((array) DB::table('overtimes')->where('id', $overtime->id)->first())->only($otFields)->all();
+        $changedAfter = array_diff_assoc(array_map('strval', $otAfter), array_map('strval', $otBefore));
+        AuditLogger::record('overtime.recalculated', [
+            'category' => 'data',
+            'action' => 'update',
+            'target' => $overtime,
+            'description' => "Recalculated overtime #{$overtime->id} ({$overtime->employee_name}, ".substr($overtime->record_date, 0, 10)
+                .") after time edit to {$overtime->earliest_time}–{$overtime->latest_time}",
+            'old' => array_intersect_key($otBefore, $changedAfter) ?: null,
+            'new' => $changedAfter ?: null,
+            'metadata' => ['earliest_time' => $overtime->earliest_time, 'latest_time' => $overtime->latest_time],
+        ]);
+
         return response()->json([
             'success' => true,
             'message' => 'Time updated successfully',
@@ -269,18 +495,13 @@ class OvertimeController extends Controller
 
     public function getOvertimeCounts(Request $request)
     {
-        $userRole = $request->get('userRole', 'user'); // get user role from AJAX
-        $department = $request->get('department', null); // get department name
         $biometricImportId = $this->biometricHistoryList->getLoadedRecordId();
 
-
-        // Base query
+        // Base query: the rows this user may see (non-admins: departments they head),
+        // counted the way the table lists them ("With hours only")
         $query = Overtime::query();
-
-        // 👤 If user, filter by department
-        if ($userRole === 'user' && $department) {
-            $query->where('department', $department);
-        }
+        $this->restrictToOwnDepartments($query);
+        $this->withHoursOnly($query, $request);
 
         if (!empty($biometricImportId)) {
             $query->where('biometric_imports_id', $biometricImportId);

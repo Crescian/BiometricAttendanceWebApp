@@ -12,14 +12,20 @@ class ComputationService
      * Calculate ordinary day (ORD) overtime, night differential, and ND-OT hours.
      * Returns [ord_ot_hours, ord_nd_hours, ord_nd_ot_hours]
      */
-    public function autocalculateOrd($row, $non_working_days, $data, $engine, $conn, $biometric_imports_id): array
+    public function autocalculateOrd($row, $non_working_days, $data, $engine, $conn, $biometric_imports_id, ?array $context = null): array
     {
         try {
             $record_date = substr($row['record_date'], 0, 10);
 
-            $cleaned_nwd = array_map(fn($d) => trim(str_replace("'", "", $d)), $non_working_days);
-            if (in_array($record_date, $cleaned_nwd)) {
-                return [0, 0, 0];
+            if ($context !== null) {
+                if (isset($context['non_working'][$record_date])) {
+                    return [0, 0, 0];
+                }
+            } else {
+                $cleaned_nwd = array_map(fn($d) => trim(str_replace("'", "", $d)), $non_working_days);
+                if (in_array($record_date, $cleaned_nwd)) {
+                    return [0, 0, 0];
+                }
             }
 
             if (!empty($row['leaves'])) {
@@ -37,14 +43,12 @@ class ComputationService
             $employee_name = $row['employee_name'];
             $schedule = null;
 
-            $tempMatch = DB::table('schedule_adjustments')
-                ->join('employee_management', 'employee_management.id', '=', 'schedule_adjustments.employee_management_id')
-                ->where('employee_management.employee_name', $employee_name)
-                ->whereRaw("DATE(schedule_adjustments.record_date) = ?", [$record_date])
-                ->value('schedule_adjustments.schedule');
+            $tempMatch = $this->adjustedSchedule($employee_name, $record_date, $context);
 
             if ($tempMatch) {
                 $schedule = $tempMatch;
+            } elseif ($context !== null) {
+                $schedule = $this->field($context['employees_by_name'][$employee_name] ?? null, 'schedule');
             } else {
                 foreach ($data as $d) {
                     $name = is_array($d) ? ($d['employee_name'] ?? null) : ($d->employee_name ?? null);
@@ -65,68 +69,20 @@ class ComputationService
                 $schedule = (abs($earSec - 7 * 3600) <= abs($earSec - 19 * 3600)) ? '7-19' : '19-7';
             }
 
-            [$startStr] = explode('-', $schedule);
-            $startHour      = (int)$startStr;
-            $lateCutoffSec  = $startHour * 3600 + 15 * 60;
-            $replaceTimeSec = ($startHour + 1) * 3600;
-
-            $earSec = $this->timeToSeconds($earliest);
-            $latSec = $this->timeToSeconds($latest);
-
-            // Late check: shift in_time by 1 hour if past the 15-min grace window
-            if ($earSec > $lateCutoffSec) {
-                $earSec = $replaceTimeSec;
-            }
-
-            if ($latSec <= $earSec) {
-                $latSec += 86400; // crosses midnight
-            }
-
-            if ($earSec === $latSec) {
-                return [0, 0, 0];
-            }
-
-            // Hourly loop: accumulate ND and OT seconds
-            $ndStartSec   = 22 * 3600;
-            $ndEndSec     = 6 * 3600;
-
-            // Regular window = 8 worked hours + 1-hr break = 9 hours elapsed before OT starts.
-            // Mirrors the RD-side rule in autocalculateRdAndOvertime(); schedules with no
-            // built-in break keep the flat 8-hour cutoff.
+            // Regular window = 8 worked hours + 1-hr break = 9 hours elapsed before OT starts;
+            // schedules with no built-in break keep the flat 8-hour cutoff.
             $noBreakSchedules = ['15-23', '23-7'];
             $regularLimit = in_array($schedule, $noBreakSchedules) ? 8 * 3600 : 9 * 3600;
 
-            $workedSec  = 0;
-            $ordOtSec   = 0;
-            $ordNdSec   = 0;
-            $ordNdOtSec = 0;
-
-            $current = $earSec;
-            while ($current < $latSec) {
-                $next     = min($current + 3600, $latSec);
-                $blockSec = $next - $current;
-                $todSec   = $current % 86400;
-                $isNd     = ($todSec >= $ndStartSec || $todSec < $ndEndSec);
-
-                if ($workedSec < $regularLimit) {
-                    $workedSec += $blockSec;
-                    if ($isNd) {
-                        $ordNdSec += $blockSec;
-                    }
-                } else {
-                    if ($isNd) {
-                        $ordNdOtSec += $blockSec;
-                    } else {
-                        $ordOtSec += $blockSec;
-                    }
-                }
-                $current = $next;
+            $w = $this->otWindows($schedule, $earliest, $latest, $regularLimit);
+            if ($w === null) {
+                return [0, 0, 0];
             }
 
             return [
-                round($ordOtSec / 3600, 2),
-                round($ordNdSec / 3600, 2),
-                round($ordNdOtSec / 3600, 2),
+                round($w['ot'] / 3600, 2),
+                round($w['regular_nd'] / 3600, 2),
+                round($w['nd_ot'] / 3600, 2),
             ];
 
         } catch (\Exception $ex) {
@@ -140,7 +96,7 @@ class ComputationService
      * Only runs when record_date falls on a non-working day.
      * Returns ['rd', 'rd_ot', 'rd_nd', 'rd_nd_ot']
      */
-    public function autocalculateRdAndOvertime(array $row, $data): array
+    public function autocalculateRdAndOvertime(array $row, $data, ?array $context = null): array
     {
         $zero = ['rd' => 0, 'rd_ot' => 0, 'rd_nd' => 0, 'rd_nd_ot' => 0];
 
@@ -151,27 +107,31 @@ class ComputationService
                 return $zero;
             }
 
-            // Load non-working days from DB (not config)
-            $nonWorkingDays = DB::table('custom_dates')
-                ->pluck('record_date')
-                ->map(fn($d) => substr($d, 0, 10))
-                ->toArray();
+            // Load non-working days from DB (not config), unless preloaded
+            if ($context !== null) {
+                if (!isset($context['non_working'][$recordDate])) {
+                    return $zero;
+                }
+            } else {
+                $nonWorkingDays = DB::table('custom_dates')
+                    ->pluck('record_date')
+                    ->map(fn($d) => substr($d, 0, 10))
+                    ->toArray();
 
-            if (!in_array($recordDate, $nonWorkingDays)) {
-                return $zero;
+                if (!in_array($recordDate, $nonWorkingDays)) {
+                    return $zero;
+                }
             }
 
             $employee_name = $row['employee_name'];
             $schedule = null;
 
-            $tempMatch = DB::table('schedule_adjustments')
-                ->join('employee_management', 'employee_management.id', '=', 'schedule_adjustments.employee_management_id')
-                ->where('employee_management.employee_name', $employee_name)
-                ->whereRaw("DATE(schedule_adjustments.record_date) = ?", [$recordDate])
-                ->value('schedule_adjustments.schedule');
+            $tempMatch = $this->adjustedSchedule($employee_name, $recordDate, $context);
 
             if ($tempMatch) {
                 $schedule = $tempMatch;
+            } elseif ($context !== null) {
+                $schedule = $this->field($context['employees_by_name'][$employee_name] ?? null, 'schedule');
             } else {
                 if ($data instanceof \Illuminate\Support\Collection) {
                     $emp = $data->firstWhere('employee_name', $employee_name);
@@ -203,76 +163,103 @@ class ComputationService
                 $schedule = (abs($earSec - 7 * 3600) <= abs($earSec - 19 * 3600)) ? '7-19' : '19-7';
             }
 
-            [$startStr] = explode('-', $schedule);
-            $startHour     = (int)$startStr;
-            $lateCutoffSec = $startHour * 3600 + 15 * 60;
-            $replaceTime   = ($startHour + 1) * 3600;
-
-            if ($earSec > $lateCutoffSec) {
-                $earSec = $replaceTime;
-            }
-
-            if ($latSec <= $earSec) {
-                $latSec += 86400;
-            }
-
             // RD base hours by shift type
+            $startHourOfDay = (int) (($earSec % 86400) / 3600);
             $dayShifts = ['7-16', '8-17', '7-19', '6-15', '9-15', '10-18', '10-16'];
             $rdHours   = 0;
 
             if (in_array($schedule, $dayShifts)) {
                 $rdHours = 8;
             } elseif ($schedule === '15-24') {
-                if ((int)(($earSec % 86400) / 3600) >= 15) $rdHours = 6;
+                if ($startHourOfDay >= 15) $rdHours = 6;
             } elseif ($schedule === '23-8') {
-                if ((int)(($earSec % 86400) / 3600) >= 23) $rdHours = 2;
+                if ($startHourOfDay >= 23) $rdHours = 2;
             } elseif ($schedule === '23-7') {
-                if ((int)(($earSec % 86400) / 3600) >= 23) $rdHours = 1;
+                if ($startHourOfDay >= 23) $rdHours = 1;
             }
 
-            // Hourly loop: beyond 9 hours is OT for RD (8 hrs regular + 1 hr break = 9 hrs)
-            $ndStartSec  = 22 * 3600;
-            $ndEndSec    = 6 * 3600;
-            $workedLimit = 9 * 3600;
-
-            $workedSec = 0;
-            $rdOtSec   = 0;
-            $rdNdSec   = 0;
-            $rdNdOtSec = 0;
-
-            $current = $earSec;
-            while ($current < $latSec) {
-                $next     = min($current + 3600, $latSec);
-                $blockSec = $next - $current;
-                $todSec   = $current % 86400;
-                $isNd     = ($todSec >= $ndStartSec || $todSec < $ndEndSec);
-
-                if ($workedSec < $workedLimit) {
-                    $workedSec += $blockSec;
-                    if ($isNd) {
-                        $rdNdSec += $blockSec;
-                    }
-                } else {
-                    if ($isNd) {
-                        $rdNdOtSec += $blockSec;
-                    } else {
-                        $rdOtSec += $blockSec;
-                    }
-                }
-                $current = $next;
+            // Beyond 9 hours is OT on a rest day (8 hrs regular + 1 hr break)
+            $w = $this->otWindows($schedule, $row['earliest_time'] ?? null, $row['latest_time'] ?? null, 9 * 3600);
+            if ($w === null) {
+                return $zero;
             }
 
             return [
                 'rd'       => round($rdHours, 2),
-                'rd_ot'    => round($rdOtSec   / 3600, 2),
-                'rd_nd'    => round($rdNdSec   / 3600, 2),
-                'rd_nd_ot' => round($rdNdOtSec / 3600, 2),
+                'rd_ot'    => round($w['ot'] / 3600, 2),
+                'rd_nd'    => round($w['regular_nd'] / 3600, 2),
+                'rd_nd_ot' => round($w['nd_ot'] / 3600, 2),
             ];
 
         } catch (\Throwable $e) {
             Log::error("autocalculateRdAndOvertime error: {$e->getMessage()}");
             return $zero;
         }
+    }
+
+    /**
+     * Lookups for computing many rows at once (upload, payroll), loaded in three queries instead of
+     * several per row. Pass the result as $context to autocalculateOrd()/autocalculateRdAndOvertime();
+     * the matches are the same as their per-row queries (first adjustment and first employee by name).
+     *
+     * @param iterable $employeeData the employee_management rows the caller passes as $data
+     */
+    public function buildContext(iterable $employeeData, ?string $start = null, ?string $end = null): array
+    {
+        $employeesByName = [];
+        foreach ($employeeData as $e) {
+            $name = $this->field($e, 'employee_name');
+            if ($name !== null && !array_key_exists($name, $employeesByName)) {
+                $employeesByName[$name] = $e;
+            }
+        }
+
+        $adjustments = [];
+        $rows = DB::table('schedule_adjustments as sa')
+            ->join('employee_management as em', 'em.id', '=', 'sa.employee_management_id')
+            ->when($start && $end, fn($q) => $q->whereRaw('DATE(sa.record_date) BETWEEN ? AND ?', [$start, $end]))
+            ->orderBy('sa.id')
+            ->get(['em.employee_name', 'sa.record_date', 'sa.schedule']);
+        foreach ($rows as $a) {
+            $key = $a->employee_name . '|' . substr((string) $a->record_date, 0, 10);
+            if (!array_key_exists($key, $adjustments)) {
+                $adjustments[$key] = $a->schedule;
+            }
+        }
+
+        $nonWorking = [];
+        foreach (DB::table('custom_dates')->pluck('record_date') as $d) {
+            $nonWorking[substr((string) $d, 0, 10)] = true;
+        }
+
+        return [
+            'employees_by_name' => $employeesByName,
+            'adjustments' => $adjustments,
+            'non_working' => $nonWorking,
+        ];
+    }
+
+    /** Schedule from an adjustment for this employee and day, from $context or the database. */
+    private function adjustedSchedule(?string $employeeName, string $recordDate, ?array $context)
+    {
+        if ($employeeName === null) {
+            return null; // no employee_management row has a NULL name, as the per-row query found
+        }
+        if ($context !== null) {
+            return $context['adjustments'][$employeeName . '|' . $recordDate] ?? null;
+        }
+
+        return DB::table('schedule_adjustments')
+            ->join('employee_management', 'employee_management.id', '=', 'schedule_adjustments.employee_management_id')
+            ->where('employee_management.employee_name', $employeeName)
+            ->whereRaw("DATE(schedule_adjustments.record_date) = ?", [$recordDate])
+            ->value('schedule_adjustments.schedule');
+    }
+
+    /** A field of an employee row given as an object or an array. */
+    private function field($row, string $key)
+    {
+        return is_array($row) ? ($row[$key] ?? null) : ($row->{$key} ?? null);
     }
 
     /**
@@ -327,6 +314,16 @@ class ComputationService
         $serial_number  = $employee->serial_number ?? null;
         $attendance_area = $row['Attendance Area'] ?? null;
 
+        // Late is always derived from the punches and schedule (callers pass placeholders). No late
+        // on rest days, holidays or leave days.
+        $isNonWorking = DB::table('custom_dates')->whereRaw('DATE(record_date) = ?', [substr((string) $recordDate, 0, 10)])->exists();
+        $lateMinutes = ($isNonWorking || !empty($row['leaves']))
+            ? 0
+            : $this->lateAndUndertime($schedule ?? ($employee->schedule ?? null), $earliest, $latest, $department)['late_minutes'];
+        $late         = $lateMinutes > 0;
+        $late_hours   = intdiv($lateMinutes, 60);
+        $late_minutes = $lateMinutes % 60;
+
         $newEntry = [
             'unique_id'                      => $id_str,
             'first_name'                     => $first,
@@ -356,6 +353,7 @@ class ComputationService
             'biometric_imports_id'           => $biometric_imports_id,
             'attendance_records_id'          => $attendance_records_id,
             'schedule_shift'                 => $schedule_shift,
+            'employee_management_id'         => $row['employee_management_id'] ?? ($employee->id ?? null),
         ];
 
         DB::beginTransaction();
@@ -604,6 +602,209 @@ class ComputationService
             'snapshot_ref' => $snapshotRef,
             'original'     => $originalData['original_ot'],
         ];
+    }
+
+    /**
+     * Recompute ORD/RD fields for one attendance_records row and sync its overtimes row.
+     * Used after a manual add/edit of Time In / Time Out. The formulas themselves are
+     * untouched — this only feeds the stored times through autocalculateOrd/Rd.
+     */
+    public function recomputeForAttendanceRecord(int $attendanceRecordId, int $biometricImportId): void
+    {
+        $record = DB::table('attendance_records as ar')
+            ->join('employee_management as em', 'em.id', '=', 'ar.employee_management_id')
+            ->where('ar.id', $attendanceRecordId)
+            ->select('ar.*', 'em.employee_name', 'em.department', 'em.schedule', 'em.schedule_shift')
+            ->first();
+
+        if (!$record) return;
+
+        $nonWorkingDays = DB::table('custom_dates')->pluck('record_date')->map(fn($d) => substr($d, 0, 10))->toArray();
+        $employeeData   = DB::table('employee_management')->get()->toArray();
+
+        $rowData = [
+            'employee_name'          => $record->employee_name,
+            'employee_management_id' => $record->employee_management_id,
+            'record_date'            => substr($record->record_date, 0, 10),
+            'earliest_time'          => $record->earliest_time,
+            'latest_time'            => $record->latest_time,
+            'department'             => $record->department ?? '',
+            'leaves'                 => (bool) $record->leaves,
+        ];
+
+        [$ordOt, $ordNd, $ordNdOt] = $this->autocalculateOrd(
+            $rowData, $nonWorkingDays, $employeeData, null, null, $biometricImportId
+        );
+
+        $rdResult = $this->autocalculateRdAndOvertime($rowData, collect($employeeData));
+
+        $existing = DB::table('overtimes')
+            ->where('attendance_records_id', $attendanceRecordId)
+            ->where('biometric_imports_id', $biometricImportId)
+            ->first();
+
+        if ($existing) {
+            // logOvertimeDb's update branch leaves times and RD fields alone, so update
+            // every field here. Approval status is kept as-is.
+            $toHM = function ($hours) {
+                $m = (int) round(($hours ?? 0) * 60);
+                return sprintf('%02d:%02d', intdiv($m, 60), $m % 60);
+            };
+
+            DB::table('overtimes')->where('id', $existing->id)->update([
+                'earliest_time' => $record->earliest_time,
+                'latest_time'   => $record->latest_time,
+                'ord_ot'        => $toHM($ordOt),
+                'ord_nd'        => $toHM($ordNd),
+                'ord_nd_ot'     => $toHM($ordNdOt),
+                'rd'            => $toHM($rdResult['rd']),
+                'rd_ot'         => $toHM($rdResult['rd_ot']),
+                'rd_nd'         => $toHM($rdResult['rd_nd']),
+                'rd_nd_ot'      => $toHM($rdResult['rd_nd_ot']),
+                'updated_at'    => now(),
+            ]);
+            return;
+        }
+
+        $this->logOvertimeDb(
+            $rowData,
+            $ordOt, $rdResult['rd_ot'], $ordNd, $ordNdOt,
+            $rdResult['rd'], $rdResult['rd_nd'], $rdResult['rd_nd_ot'],
+            0, false, 0, 0, null,
+            'ord', $record->schedule ?? null,
+            'Pending', $biometricImportId,
+            $attendanceRecordId,
+            $record->schedule_shift ?? null, 'ord'
+        );
+    }
+
+    /** A day's OT (OT + ND-OT) below this is not counted as OT at all; at or above it counts in full. */
+    public const OT_MINIMUM_SECONDS = 60 * 60;
+
+    /**
+     * Regular and OT windows for one day, to the minute (punch seconds are ignored).
+     *
+     * - Paid start: the schedule start when on time, early or within the 15-minute grace (arriving
+     *   early adds nothing); when late beyond grace, schedule start + 1 hour, or the actual arrival
+     *   if that is later.
+     * - Regular window: paid start + $regularLimitSec. OT: from the end of the regular window to the
+     *   last punch.
+     * - ND: the exact minutes of each window inside 22:00-06:00 (midnight crossing handled).
+     * - OT minimum: if OT + ND-OT is under 1 hour, both are 0; otherwise both count in full.
+     *
+     * Returns seconds ['regular_nd', 'ot', 'nd_ot'], or null without a usable schedule/punch pair.
+     */
+    public function otWindows(?string $schedule, ?string $earliest, ?string $latest, int $regularLimitSec): ?array
+    {
+        if (!$earliest || !$latest || !$schedule || !preg_match('/^\s*(\d{1,2})\s*-/', $schedule, $m)) {
+            return null;
+        }
+
+        $earSec = $this->minuteSeconds($earliest);
+        $latSec = $this->minuteSeconds($latest);
+        if ($earSec === $latSec) {
+            return null;
+        }
+
+        // Everything below is measured in seconds from the schedule start
+        $startSec = ((int) $m[1] % 24) * 3600;
+        $arrival = ($earSec - $startSec + 86400) % 86400;
+        if ($arrival > 43200) {
+            $arrival -= 86400; // arrived before the start
+        }
+        $span = $latSec >= $earSec ? $latSec - $earSec : $latSec + 86400 - $earSec;
+        $out = $arrival + $span;
+
+        $in = $arrival > self::GRACE_SECONDS ? max($arrival, 3600) : 0;
+        $regularEnd = $in + $regularLimitSec;
+
+        $ndOverlap = function (int $from, int $to) use ($startSec): int {
+            if ($to <= $from) {
+                return 0;
+            }
+            $total = 0;
+            // ND windows 22:00-06:00 around the shift, expressed relative to the schedule start
+            for ($day = -1; $day <= 2; $day++) {
+                $ndStart = $day * 86400 + 22 * 3600 - $startSec;
+                $ndEnd = $ndStart + 8 * 3600;
+                $total += max(0, min($to, $ndEnd) - max($from, $ndStart));
+            }
+
+            return $total;
+        };
+
+        $regularNd = $ndOverlap($in, min($out, $regularEnd));
+        $otTotal = max(0, $out - $regularEnd);
+        $ndOt = $ndOverlap($regularEnd, $out);
+        $ot = $otTotal - $ndOt;
+
+        if ($otTotal < self::OT_MINIMUM_SECONDS) {
+            $ot = $ndOt = 0;
+        }
+
+        return ['regular_nd' => $regularNd, 'ot' => $ot, 'nd_ot' => $ndOt];
+    }
+
+    /** Arriving up to this many seconds after the schedule start is not late. */
+    public const GRACE_SECONDS = 15 * 60;
+
+    /**
+     * Late and undertime for one day, in whole minutes. Punch times are read to the minute only
+     * (seconds are dropped: 15:57:09 counts as 15:57).
+     *
+     * - Late: minutes after the schedule start, counted in full (20 minutes late = 20) but only
+     *   when beyond the 15-minute grace period; within the grace period it is 0.
+     * - Undertime: every minute the last punch falls before the schedule end; no tolerance.
+     *
+     * Schedules are "start-end" hours (e.g. 7-16, 19-7 across midnight). SG Vesta picks 7-19 or
+     * 19-7 from the first punch, as in autocalculateOrd(). Returns zeros when there is no usable
+     * schedule or punch pair.
+     */
+    public function lateAndUndertime(?string $schedule, ?string $earliest, ?string $latest, ?string $department = null): array
+    {
+        $none = ['late_minutes' => 0, 'undertime_minutes' => 0, 'shift_minutes' => null, 'schedule' => null];
+        if (!$earliest || !$latest || $earliest === $latest) {
+            return $none;
+        }
+
+        $earSec = $this->minuteSeconds($earliest);
+        $latSec = $this->minuteSeconds($latest);
+
+        if (strtolower(trim((string) $department)) === 'sg vesta') {
+            $schedule = abs($earSec - 7 * 3600) <= abs($earSec - 19 * 3600) ? '7-19' : '19-7';
+        }
+        if (!$schedule || !preg_match('/^\s*(\d{1,2})\s*-\s*(\d{1,2})/', $schedule, $m)) {
+            return $none;
+        }
+
+        $startSec = ((int) $m[1] % 24) * 3600;
+        $shiftSec = ((((int) $m[2] - (int) $m[1]) % 24 + 24) % 24 ?: 24) * 3600;
+
+        // Position of the punches relative to the schedule start (early arrival is negative)
+        $arrival = ($earSec - $startSec + 86400) % 86400;
+        if ($arrival > 43200) {
+            $arrival -= 86400;
+        }
+        $span = $latSec >= $earSec ? $latSec - $earSec : $latSec + 86400 - $earSec;
+        $departure = $arrival + $span;
+
+        $lateSec = $arrival > self::GRACE_SECONDS ? $arrival : 0;
+        $undertimeSec = max($shiftSec - $departure, 0);
+
+        return [
+            'late_minutes' => intdiv($lateSec, 60),
+            'undertime_minutes' => intdiv($undertimeSec, 60),
+            'shift_minutes' => intdiv($shiftSec, 60), // scheduled start to end, break included
+            'schedule' => $schedule,                    // after SG Vesta 7-19 / 19-7 detection
+        ];
+    }
+
+    /** Seconds from midnight to the punch's minute (the seconds part is ignored). */
+    public function minuteSeconds(?string $timeStr): int
+    {
+        $seconds = $this->timeToSeconds($timeStr);
+
+        return $seconds - $seconds % 60;
     }
 
     /**

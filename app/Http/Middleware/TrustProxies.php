@@ -12,7 +12,18 @@ class TrustProxies extends Middleware
      *
      * @var array|string|null
      */
-    protected $proxies = '*'; // trust all proxies
+    protected $proxies;
+
+    /**
+     * Only proxies listed in TRUSTED_PROXIES (comma-separated IPs/CIDRs) may set X-Forwarded-For.
+     * Trusting every proxy ('*') let any client put a fake IP into the audit trail. nginx talks to
+     * PHP over FastCGI, so with no trusted proxy the recorded IP is the address nginx saw.
+     */
+    public function __construct()
+    {
+        $configured = array_filter(array_map('trim', explode(',', (string) config('app.trusted_proxies'))));
+        $this->proxies = $configured ?: null;
+    }
 
     /**
      * The headers that should be used to detect proxies.
